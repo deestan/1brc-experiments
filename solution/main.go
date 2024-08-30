@@ -9,9 +9,12 @@ import (
 	"runtime"
 	"runtime/pprof"
 	"strconv"
+
+	"github.com/google/btree"
 )
 
 const readBufferSize int = 2 << 20 // 1MB
+const bTreeDegree int = 128
 
 type filePartition struct {
 	filename string
@@ -20,18 +23,30 @@ type filePartition struct {
 }
 
 type stationData struct {
+	name          []byte
 	min, max, sum float64
 	count         int
 }
 
+func stationDataLess(a *stationData, b *stationData) bool {
+	end := min(len(a.name), len(b.name))
+	for pos := range end {
+		if a.name[pos] < b.name[pos] {
+			return true
+		}
+		if a.name[pos] > b.name[pos] {
+			return false
+		}
+	}
+	return end < len(b.name)
+}
+
 type recordHandler = func([]byte, float64)
-type statsMap = map[string]*stationData
+type statsMap = *btree.BTreeG[*stationData]
 
 func main() {
+	profFileName := os.Args[0] + ".prof"
 	if os.Getenv("PROFILE") != "" {
-		profFileName := os.Args[0] + ".prof"
-		fmt.Println("Profiling to", profFileName)
-		fmt.Println("To use, run: go tool pprof", os.Args[0], profFileName)
 		pfile, err := os.Create(profFileName)
 		if err != nil {
 			panic(err)
@@ -55,7 +70,7 @@ func main() {
 	for _, partition := range partitions {
 		go process(&partition, statsCh, doneCh)
 	}
-	stats := statsMap{}
+	stats := btree.NewG(bTreeDegree, stationDataLess)
 	remaining := len(partitions)
 	for remaining > 0 {
 		select {
@@ -68,23 +83,29 @@ func main() {
 			remaining -= 1
 		}
 	}
-	for name := range stats {
-		stat := stats[name]
-		fmt.Printf("%s;%0.2f;%0.2f;%0.2f\n", name, stat.max, stat.min, stat.sum/float64(stat.count))
+	stats.Ascend(func(item *stationData) bool {
+		fmt.Printf("%s;%0.2f;%0.2f;%0.2f\n", item.name, item.max, item.min, item.sum/float64(item.count))
+		return true
+	})
+
+	if os.Getenv("PROFILE") != "" {
+		fmt.Fprintln(os.Stderr, "Profile saved to", profFileName)
+		fmt.Fprintln(os.Stderr, "To use, run: go tool pprof", os.Args[0], profFileName)
 	}
 }
 
 func merge(tgt statsMap, src statsMap) {
-	for inName, inStat := range src {
-		if stat, ok := tgt[inName]; ok {
-			stat.count += inStat.count
-			stat.sum += inStat.sum
-			stat.min = min(stat.min, inStat.min)
-			stat.max = max(stat.max, inStat.max)
+	src.Ascend(func(srcItem *stationData) bool {
+		if tgtItem, ok := tgt.Get(srcItem); ok {
+			tgtItem.count += srcItem.count
+			tgtItem.sum += srcItem.sum
+			tgtItem.min = min(tgtItem.min, srcItem.min)
+			tgtItem.max = max(tgtItem.max, srcItem.max)
 		} else {
-			tgt[inName] = inStat
+			tgt.ReplaceOrInsert(srcItem)
 		}
-	}
+		return true
+	})
 }
 
 func partitionFile(filename string) ([]filePartition, error) {
@@ -93,7 +114,7 @@ func partitionFile(filename string) ([]filePartition, error) {
 		return nil, err
 	}
 	fileSize := fi.Size()
-	numPartitions := int64(10 * runtime.NumCPU())
+	numPartitions := int64(runtime.NumCPU())
 	partitions := make([]filePartition, numPartitions)
 	partitionSize := fileSize / numPartitions
 	for i := range numPartitions {
@@ -110,17 +131,27 @@ func partitionFile(filename string) ([]filePartition, error) {
 }
 
 func process(partition *filePartition, statsCh chan statsMap, doneCh chan error) {
-	stats := statsMap{}
+	stats := btree.NewG(bTreeDegree, stationDataLess)
+	key := stationData{}
 	// The iterator pattern is a pleasant way to process data without allocating or copying
 	err := iterateRecords(partition, func(stationName []byte, measurement float64) {
-		key := string(stationName)
-		if station, ok := stats[key]; ok {
-			station.sum += measurement
-			station.min = min(station.min, measurement)
-			station.max = max(station.max, measurement)
-			station.count += 1
+		key.name = stationName
+		if item, ok := stats.Get(&key); ok {
+			item.count += 1
+			item.sum += measurement
+			item.min = min(item.min, measurement)
+			item.max = max(item.max, measurement)
 		} else {
-			stats[key] = &stationData{measurement, measurement, measurement, 1}
+			nameCopy := make([]byte, len(stationName))
+			copy(nameCopy, stationName)
+			newItem := stationData{
+				name:  nameCopy,
+				min:   measurement,
+				max:   measurement,
+				sum:   measurement,
+				count: 1,
+			}
+			stats.ReplaceOrInsert(&newItem)
 		}
 	})
 	if err != nil {
