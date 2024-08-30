@@ -10,11 +10,11 @@ import (
 	"runtime/pprof"
 	"strconv"
 
-	"github.com/google/btree"
+	"github.com/alphadose/haxmap"
 )
 
 const readBufferSize int = 2 << 20 // 1MB
-const bTreeDegree int = 128
+const mapInitSize uintptr = 10_000
 
 type filePartition struct {
 	filename string
@@ -23,26 +23,12 @@ type filePartition struct {
 }
 
 type stationData struct {
-	name          []byte
 	min, max, sum float64
 	count         int
 }
 
-func stationDataLess(a *stationData, b *stationData) bool {
-	end := min(len(a.name), len(b.name))
-	for pos := range end {
-		if a.name[pos] < b.name[pos] {
-			return true
-		}
-		if a.name[pos] > b.name[pos] {
-			return false
-		}
-	}
-	return end < len(b.name)
-}
-
 type recordHandler = func([]byte, float64)
-type statsMap = *btree.BTreeG[*stationData]
+type statsMap = *haxmap.Map[string, *stationData]
 
 func main() {
 	profFileName := os.Args[0] + ".prof"
@@ -70,7 +56,7 @@ func main() {
 	for _, partition := range partitions {
 		go process(&partition, statsCh, doneCh)
 	}
-	stats := btree.NewG(bTreeDegree, stationDataLess)
+	stats := haxmap.New[string, *stationData](mapInitSize)
 	remaining := len(partitions)
 	for remaining > 0 {
 		select {
@@ -83,8 +69,8 @@ func main() {
 			remaining -= 1
 		}
 	}
-	stats.Ascend(func(item *stationData) bool {
-		fmt.Printf("%s;%0.2f;%0.2f;%0.2f\n", item.name, item.max, item.min, item.sum/float64(item.count))
+	stats.ForEach(func(name string, item *stationData) bool {
+		fmt.Printf("%s;%0.2f;%0.2f;%0.2f\n", name, item.max, item.min, item.sum/float64(item.count))
 		return true
 	})
 
@@ -95,14 +81,14 @@ func main() {
 }
 
 func merge(tgt statsMap, src statsMap) {
-	src.Ascend(func(srcItem *stationData) bool {
-		if tgtItem, ok := tgt.Get(srcItem); ok {
+	src.ForEach(func(name string, srcItem *stationData) bool {
+		if tgtItem, ok := tgt.Get(name); ok {
 			tgtItem.count += srcItem.count
 			tgtItem.sum += srcItem.sum
 			tgtItem.min = min(tgtItem.min, srcItem.min)
 			tgtItem.max = max(tgtItem.max, srcItem.max)
 		} else {
-			tgt.ReplaceOrInsert(srcItem)
+			tgt.Set(name, srcItem)
 		}
 		return true
 	})
@@ -131,27 +117,23 @@ func partitionFile(filename string) ([]filePartition, error) {
 }
 
 func process(partition *filePartition, statsCh chan statsMap, doneCh chan error) {
-	stats := btree.NewG(bTreeDegree, stationDataLess)
-	key := stationData{}
+	stats := haxmap.New[string, *stationData](mapInitSize)
 	// The iterator pattern is a pleasant way to process data without allocating or copying
 	err := iterateRecords(partition, func(stationName []byte, measurement float64) {
-		key.name = stationName
-		if item, ok := stats.Get(&key); ok {
+		name := string(stationName)
+		if item, ok := stats.Get(name); ok {
 			item.count += 1
 			item.sum += measurement
 			item.min = min(item.min, measurement)
 			item.max = max(item.max, measurement)
 		} else {
-			nameCopy := make([]byte, len(stationName))
-			copy(nameCopy, stationName)
 			newItem := stationData{
-				name:  nameCopy,
 				min:   measurement,
 				max:   measurement,
 				sum:   measurement,
 				count: 1,
 			}
-			stats.ReplaceOrInsert(&newItem)
+			stats.Set(name, &newItem)
 		}
 	})
 	if err != nil {
