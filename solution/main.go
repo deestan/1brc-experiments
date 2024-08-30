@@ -25,6 +25,7 @@ type stationData struct {
 }
 
 type recordHandler = func([]byte, float64)
+type statsMap = map[string]*stationData
 
 func main() {
 	if os.Getenv("PROFILE") != "" {
@@ -49,26 +50,17 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	statsCh := make(chan map[string]*stationData)
+	statsCh := make(chan statsMap)
 	doneCh := make(chan error)
 	for _, partition := range partitions {
 		go process(&partition, statsCh, doneCh)
 	}
-	stats := map[string]*stationData{}
+	stats := statsMap{}
 	remaining := len(partitions)
 	for remaining > 0 {
 		select {
 		case statsPartition := <-statsCh:
-			for inName, inStat := range statsPartition {
-				if stat, ok := stats[inName]; ok {
-					stat.count += inStat.count
-					stat.sum += inStat.sum
-					stat.min = min(stat.min, inStat.min)
-					stat.max = max(stat.max, inStat.max)
-				} else {
-					stats[inName] = inStat
-				}
-			}
+			merge(stats, statsPartition)
 		case err := <-doneCh:
 			if err != nil {
 				panic(err)
@@ -79,6 +71,19 @@ func main() {
 	for name := range stats {
 		stat := stats[name]
 		fmt.Printf("%s;%0.2f;%0.2f;%0.2f\n", name, stat.max, stat.min, stat.sum/float64(stat.count))
+	}
+}
+
+func merge(tgt statsMap, src statsMap) {
+	for inName, inStat := range src {
+		if stat, ok := tgt[inName]; ok {
+			stat.count += inStat.count
+			stat.sum += inStat.sum
+			stat.min = min(stat.min, inStat.min)
+			stat.max = max(stat.max, inStat.max)
+		} else {
+			tgt[inName] = inStat
+		}
 	}
 }
 
@@ -104,8 +109,8 @@ func partitionFile(filename string) ([]filePartition, error) {
 	return partitions, nil
 }
 
-func process(partition *filePartition, statsCh chan map[string]*stationData, doneCh chan error) {
-	stats := map[string]*stationData{}
+func process(partition *filePartition, statsCh chan statsMap, doneCh chan error) {
+	stats := statsMap{}
 	// The iterator pattern is a pleasant way to process data without allocating or copying
 	err := iterateRecords(partition, func(stationName []byte, measurement float64) {
 		key := string(stationName)
