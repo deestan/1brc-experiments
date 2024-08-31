@@ -19,12 +19,13 @@ type filePartition struct {
 }
 
 type stationData struct {
-	name          []byte
-	min, max, sum float64
+	namePos       int
+	nameLen       int
+	min, max, sum int64
 	count         int
 }
 
-type recordHandler = func([]byte, float64)
+type recordHandler = func(int, int, int64)
 type statsMap = map[uint64]*stationData
 
 func main() {
@@ -66,8 +67,14 @@ func main() {
 		statsPartition := <-resultsCh
 		merge(stats, statsPartition)
 	}
+	nameBuf := make([]byte, 101)
 	for _, item := range stats {
-		fmt.Printf("%s;%0.2f;%0.2f;%0.2f\n", item.name, item.max, item.min, item.sum/float64(item.count))
+		name := nameBuf[:item.nameLen]
+		fileReader.ReadAt(name, int64(item.namePos))
+		mMax := measurement2ToFloat64(item.max)
+		mMin := measurement2ToFloat64(item.min)
+		mAvg := measurement2ToFloat64(item.sum) / float64(item.count)
+		fmt.Printf("%s;%0.2f;%0.2f;%0.2f\n", name, mMax, mMin, mAvg)
 	}
 
 	if os.Getenv("PROFILE") != "" {
@@ -113,9 +120,15 @@ func partitionFile(reader *mmap.ReaderAt) []filePartition {
 
 func process(partition *filePartition, hashSeed maphash.Seed, reader *mmap.ReaderAt, resultCh chan statsMap) {
 	stats := make(statsMap, mapInitSize)
+	hasher := maphash.Hash{}
+	hasher.SetSeed(hashSeed)
 	// The iterator pattern is a pleasant way to process data without allocating or copying
-	iterateRecords(partition, reader, func(name []byte, measurement float64) {
-		key := maphash.Bytes(hashSeed, name)
+	iterateRecords(partition, reader, func(namePos int, nameLen int, measurement int64) {
+		hasher.Reset()
+		for i := range nameLen {
+			hasher.WriteByte(reader.At(namePos + i))
+		}
+		key := hasher.Sum64()
 		if item, ok := stats[key]; ok {
 			item.count += 1
 			item.sum += measurement
@@ -123,11 +136,12 @@ func process(partition *filePartition, hashSeed maphash.Seed, reader *mmap.Reade
 			item.max = max(item.max, measurement)
 		} else {
 			newItem := stationData{
-				name:  name,
-				min:   measurement,
-				max:   measurement,
-				sum:   measurement,
-				count: 1,
+				namePos: namePos,
+				nameLen: nameLen,
+				min:     measurement,
+				max:     measurement,
+				sum:     measurement,
+				count:   1,
 			}
 			stats[key] = &newItem
 		}
@@ -137,50 +151,44 @@ func process(partition *filePartition, hashSeed maphash.Seed, reader *mmap.Reade
 
 func iterateRecords(partition *filePartition, reader *mmap.ReaderAt, handler recordHandler) {
 	pos := partition.start
-	floatTempBuf := [6]byte{} // len("-99.99")==6
-	var recordStart int
-	var fieldSeparator int
+	var nameStart int
+	var nameLen int
+	var measurement int64
 	for pos < partition.end {
-		for recordStart = pos; reader.At(pos) != ';'; pos++ {
+		for nameStart = pos; reader.At(pos) != ';'; pos++ {
 		}
-		for fieldSeparator = pos; reader.At(pos) != '\n'; pos++ {
-		}
-		measurementStart := fieldSeparator + 1
-		name := make([]byte, fieldSeparator-recordStart)
-		reader.ReadAt(name, int64(recordStart))
-		floatBuf := floatTempBuf[:pos-measurementStart]
-		reader.ReadAt(floatBuf, int64(measurementStart))
-		measurement := trustingReadFloat64(floatBuf)
-		handler(name, measurement)
-		pos++
+		nameLen = pos - nameStart
+		pos = consumeMeasurement2(reader, pos+1, &measurement)
+		handler(nameStart, nameLen, measurement)
 	}
 }
 
-// Lean hard on data source promising max 2 integral digits
-// and at least one fractional digit
-func trustingReadFloat64(data []byte) float64 {
-	pos := 0
-	negative := data[0] == '-'
+// Value of the measurement, multiplied by 10^2
+func consumeMeasurement2(reader *mmap.ReaderAt, start int, result *int64) int {
+	pos := start
+	negative := reader.At(pos) == '-'
 	if negative {
-		pos = 1
-	}
-	integral := float64(0)
-	exponent := float64(0)
-	for pos < len(data) {
-		if data[pos] == '.' {
-			pos += 1
-			if pos == len(data)-2 {
-				exponent = 100
-			} else if pos == len(data)-1 {
-				exponent = 10
-			}
-		}
-		integral *= 10
-		integral += float64(data[pos] - '0')
 		pos += 1
 	}
-	if negative {
-		integral = -integral
+	*result = 0
+	for reader.At(pos) != '\n' {
+		if reader.At(pos) == '.' {
+			pos += 1
+		}
+		*result *= 10
+		*result += int64(reader.At(pos) - '0')
+		pos += 1
 	}
-	return integral / exponent
+	// Number has either 1 or 2 fractional digits
+	if reader.At(pos-2) == '.' {
+		*result *= 10
+	}
+	if negative {
+		*result = -*result
+	}
+	return pos + 1
+}
+
+func measurement2ToFloat64(measurement int64) float64 {
+	return float64(measurement) / 100
 }
