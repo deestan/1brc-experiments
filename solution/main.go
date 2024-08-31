@@ -33,6 +33,7 @@ type statsMap = *haxmap.Map[string, *stationData]
 func main() {
 	profFileName := os.Args[0] + ".prof"
 	if os.Getenv("PROFILE") != "" {
+		fmt.Fprintln(os.Stderr, "Profiling enabled")
 		pfile, err := os.Create(profFileName)
 		if err != nil {
 			panic(err)
@@ -75,7 +76,6 @@ func main() {
 	})
 
 	if os.Getenv("PROFILE") != "" {
-		fmt.Fprintln(os.Stderr, "Profile saved to", profFileName)
 		fmt.Fprintln(os.Stderr, "To use, run: go tool pprof", os.Args[0], profFileName)
 	}
 }
