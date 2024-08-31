@@ -1,35 +1,36 @@
 package main
 
 import (
-	"bufio"
-	"bytes"
 	"fmt"
-	"io"
+	"hash/maphash"
 	"os"
 	"runtime"
 	"runtime/pprof"
+	"syscall"
 
-	"github.com/alphadose/haxmap"
+	"golang.org/x/exp/mmap"
 )
 
-const readBufferSize int = 2 << 20 // 1MB
 const mapInitSize uintptr = 10_000
 
 type filePartition struct {
-	filename string
-	start    int64
-	size     int64
+	start int
+	end   int
 }
 
 type stationData struct {
+	name          []byte
 	min, max, sum float64
 	count         int
 }
 
 type recordHandler = func([]byte, float64)
-type statsMap = *haxmap.Map[string, *stationData]
+type statsMap = map[uint64]*stationData
 
 func main() {
+	if err := syscall.Setpriority(syscall.PRIO_PROCESS, 0, -20); err != nil {
+		fmt.Fprintln(os.Stderr, "Not superuser: running process in default priority")
+	}
 	profFileName := os.Args[0] + ".prof"
 	if os.Getenv("PROFILE") != "" {
 		fmt.Fprintln(os.Stderr, "Profiling enabled")
@@ -42,37 +43,32 @@ func main() {
 		defer pprof.StopCPUProfile()
 	}
 
-	inputFile := os.Getenv("FILE")
-	if inputFile == "" {
-		inputFile = "/fast/measurements_1B.txt"
+	inputFile := "/tmpfs/measurements_1B.txt"
+	if len(os.Args) > 1 {
+		inputFile = os.Args[1]
 	}
+	fmt.Fprintln(os.Stderr, "Reading records from", inputFile)
 
-	partitions, err := partitionFile(inputFile)
+	fileReader, err := mmap.Open(inputFile)
 	if err != nil {
 		panic(err)
 	}
-	statsCh := make(chan statsMap)
-	doneCh := make(chan error)
+	defer fileReader.Close()
+	partitions := partitionFile(fileReader)
+
+	resultsCh := make(chan statsMap)
+	hashSeed := maphash.MakeSeed()
 	for _, partition := range partitions {
-		go process(&partition, statsCh, doneCh)
+		go process(&partition, hashSeed, fileReader, resultsCh)
 	}
-	stats := haxmap.New[string, *stationData](mapInitSize)
-	remaining := len(partitions)
-	for remaining > 0 {
-		select {
-		case statsPartition := <-statsCh:
-			merge(stats, statsPartition)
-		case err := <-doneCh:
-			if err != nil {
-				panic(err)
-			}
-			remaining -= 1
-		}
+	stats := make(statsMap, mapInitSize)
+	for range partitions {
+		statsPartition := <-resultsCh
+		merge(stats, statsPartition)
 	}
-	stats.ForEach(func(name string, item *stationData) bool {
-		fmt.Printf("%s;%0.2f;%0.2f;%0.2f\n", name, item.max, item.min, item.sum/float64(item.count))
-		return true
-	})
+	for _, item := range stats {
+		fmt.Printf("%s;%0.2f;%0.2f;%0.2f\n", item.name, item.max, item.min, item.sum/float64(item.count))
+	}
 
 	if os.Getenv("PROFILE") != "" {
 		fmt.Fprintln(os.Stderr, "To use, run: go tool pprof", os.Args[0], profFileName)
@@ -80,105 +76,86 @@ func main() {
 }
 
 func merge(tgt statsMap, src statsMap) {
-	src.ForEach(func(name string, srcItem *stationData) bool {
-		if tgtItem, ok := tgt.Get(name); ok {
+	for key, srcItem := range src {
+		if tgtItem, ok := tgt[key]; ok {
 			tgtItem.count += srcItem.count
 			tgtItem.sum += srcItem.sum
 			tgtItem.min = min(tgtItem.min, srcItem.min)
 			tgtItem.max = max(tgtItem.max, srcItem.max)
 		} else {
-			tgt.Set(name, srcItem)
+			tgt[key] = srcItem
 		}
-		return true
-	})
+	}
 }
 
-func partitionFile(filename string) ([]filePartition, error) {
-	fi, err := os.Stat(filename)
-	if err != nil {
-		return nil, err
-	}
-	fileSize := fi.Size()
-	numPartitions := int64(runtime.NumCPU())
+func partitionFile(reader *mmap.ReaderAt) []filePartition {
+	numPartitions := runtime.NumCPU()
 	partitions := make([]filePartition, numPartitions)
-	partitionSize := fileSize / numPartitions
+	partitionSize := reader.Len() / numPartitions
+	prevEnd := 0
 	for i := range numPartitions {
-		partitions[i] = filePartition{
-			filename: filename,
-			start:    i * partitionSize,
-			size:     partitionSize,
+		partition := filePartition{
+			start: prevEnd,
+			end:   prevEnd + partitionSize,
 		}
 		if i == numPartitions-1 {
-			partitions[i].size = fileSize - partitions[i].start
+			partition.end = reader.Len()
+		} else {
+			for reader.At(partition.end-1) != byte('\n') {
+				partition.end += 1
+			}
 		}
+		prevEnd = partition.end
+		partitions[i] = partition
 	}
-	return partitions, nil
+	return partitions
 }
 
-func process(partition *filePartition, statsCh chan statsMap, doneCh chan error) {
-	stats := haxmap.New[string, *stationData](mapInitSize)
+func process(partition *filePartition, hashSeed maphash.Seed, reader *mmap.ReaderAt, resultCh chan statsMap) {
+	stats := make(statsMap, mapInitSize)
 	// The iterator pattern is a pleasant way to process data without allocating or copying
-	err := iterateRecords(partition, func(stationName []byte, measurement float64) {
-		name := string(stationName)
-		if item, ok := stats.Get(name); ok {
+	iterateRecords(partition, reader, func(name []byte, measurement float64) {
+		key := maphash.Bytes(hashSeed, name)
+		if item, ok := stats[key]; ok {
 			item.count += 1
 			item.sum += measurement
 			item.min = min(item.min, measurement)
 			item.max = max(item.max, measurement)
 		} else {
+			nameCopy := make([]byte, len(name))
+			copy(nameCopy, name)
 			newItem := stationData{
+				name:  nameCopy,
 				min:   measurement,
 				max:   measurement,
 				sum:   measurement,
 				count: 1,
 			}
-			stats.Set(name, &newItem)
+			stats[key] = &newItem
 		}
 	})
-	if err != nil {
-		doneCh <- err
-		return
-	}
-
-	statsCh <- stats
-	doneCh <- nil
+	resultCh <- stats
 }
 
-func iterateRecords(partition *filePartition, handler recordHandler) error {
-	f, err := os.Open(partition.filename)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	if _, err := f.Seek(partition.start, io.SeekStart); err != nil {
-		return err
-	}
-
-	buf := make([]byte, readBufferSize)
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(buf, 0)
-	scanner.Split(bufio.ScanLines)
-	remaining := partition.size
-
-	// Each partition processor reads one record past its limit,
-	// so each subsequent processor must skip the first record delimiter.
-	// This adjusts for records that cross partitions.
-	if partition.start != 0 {
-		scanner.Scan()
-		remaining -= int64(len(scanner.Bytes()) + 1)
-	}
-
-	for scanner.Scan() {
-		data := scanner.Bytes()
-		splitPos := bytes.Index(data, []byte{';'})
-		handler(data[:splitPos], trustingReadFloat64(data[splitPos+1:]))
-		remaining -= int64(len(scanner.Bytes()) + 1)
-		if remaining < 0 {
-			break
+func iterateRecords(partition *filePartition, reader *mmap.ReaderAt, handler recordHandler) {
+	pos := partition.start
+	floatTempBuf := [6]byte{} // len("-99.99")==6
+	var recordStart int
+	var fieldSeparator int
+	for pos < partition.end {
+		for recordStart = pos; reader.At(pos) != ';'; pos++ {
 		}
+		for fieldSeparator = pos; reader.At(pos) != '\n'; pos++ {
+		}
+		measurementStart := fieldSeparator + 1
+		name := make([]byte, fieldSeparator-recordStart)
+		reader.ReadAt(name, int64(recordStart))
+		floatBuf := floatTempBuf[:pos-measurementStart]
+		reader.ReadAt(floatBuf, int64(measurementStart))
+		measurement := trustingReadFloat64(floatBuf)
+		handler(name, measurement)
+		pos++
 	}
-
-	return nil
 }
 
 // Lean hard on data source promising max 2 integral digits
