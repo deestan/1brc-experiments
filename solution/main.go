@@ -44,7 +44,7 @@ func main() {
 
 	inputFile := os.Getenv("FILE")
 	if inputFile == "" {
-		inputFile = "../measurements_1B.txt"
+		inputFile = "/fast/measurements_1B.txt"
 	}
 
 	partitions, err := partitionFile(inputFile)
