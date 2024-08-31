@@ -8,7 +8,6 @@ import (
 	"os"
 	"runtime"
 	"runtime/pprof"
-	"strconv"
 
 	"github.com/alphadose/haxmap"
 )
@@ -171,9 +170,8 @@ func iterateRecords(partition *filePartition, handler recordHandler) error {
 
 	for scanner.Scan() {
 		data := scanner.Bytes()
-		if err := parseRecord(data, handler); err != nil {
-			return err
-		}
+		splitPos := bytes.Index(data, []byte{';'})
+		handler(data[:splitPos], trustingReadFloat64(data[splitPos+1:]))
 		remaining -= int64(len(scanner.Bytes()) + 1)
 		if remaining < 0 {
 			break
@@ -183,13 +181,31 @@ func iterateRecords(partition *filePartition, handler recordHandler) error {
 	return nil
 }
 
-func parseRecord(data []byte, handler recordHandler) error {
-	splitPos := bytes.Index(data, []byte{';'})
-	name := data[:splitPos]
-	val, err := strconv.ParseFloat(string(data[splitPos+1:]), 64)
-	if err != nil {
-		return err
+// Lean hard on data source promising max 2 integral digits
+// and at least one fractional digit
+func trustingReadFloat64(data []byte) float64 {
+	pos := 0
+	negative := data[0] == '-'
+	if negative {
+		pos = 1
 	}
-	handler(name, val)
-	return nil
+	integral := float64(0)
+	exponent := float64(0)
+	for pos < len(data) {
+		if data[pos] == '.' {
+			pos += 1
+			if pos == len(data)-2 {
+				exponent = 100
+			} else if pos == len(data)-1 {
+				exponent = 10
+			}
+		}
+		integral *= 10
+		integral += float64(data[pos] - '0')
+		pos += 1
+	}
+	if negative {
+		integral = -integral
+	}
+	return integral / exponent
 }
