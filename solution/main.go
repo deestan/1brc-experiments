@@ -122,10 +122,8 @@ func process(partition *filePartition, hashSeed maphash.Seed, reader *mmap.Reade
 			item.min = min(item.min, measurement)
 			item.max = max(item.max, measurement)
 		} else {
-			nameCopy := make([]byte, len(name))
-			copy(nameCopy, name)
 			newItem := stationData{
-				name:  nameCopy,
+				name:  name,
 				min:   measurement,
 				max:   measurement,
 				sum:   measurement,
