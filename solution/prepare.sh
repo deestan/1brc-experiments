@@ -1,1 +1,1 @@
-mount -t tmpfs -o size=14G tmpfs /tmpfs && cp ../measurements_1B.txt /tmpfs
+mount -t ramfs -o SIZE=14GB ramfs /ramfs && cp ../measurements_1B.txt /ramfs
