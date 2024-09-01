@@ -7,25 +7,28 @@ import (
 	"runtime"
 	"runtime/pprof"
 	"syscall"
-
-	"golang.org/x/exp/mmap"
 )
 
 const mapInitSize uintptr = 10_000
 
-type filePartition struct {
-	start int
-	end   int
-}
-
 type stationData struct {
-	namePos       int
-	nameLen       int
+	name          []byte
 	min, max, sum int64
 	count         int
 }
 
-type recordHandler = func(int, int, int64)
+type mmapData struct {
+	data []byte
+}
+
+func (m *mmapData) close() error {
+	data := m.data
+	m.data = nil
+	runtime.SetFinalizer(m, nil)
+	return syscall.Munmap(data)
+}
+
+type recordHandler = func([]byte, int64)
 type statsMap = map[uint64]*stationData
 
 func main() {
@@ -50,31 +53,28 @@ func main() {
 	}
 	fmt.Fprintln(os.Stderr, "Reading records from", inputFile)
 
-	fileReader, err := mmap.Open(inputFile)
+	fileMap, err := openMmap(inputFile)
 	if err != nil {
 		panic(err)
 	}
-	defer fileReader.Close()
-	partitions := partitionFile(fileReader)
+	defer fileMap.close()
+	partitions := partitionData(fileMap.data)
 
 	resultsCh := make(chan statsMap)
 	hashSeed := maphash.MakeSeed()
 	for _, partition := range partitions {
-		go process(&partition, hashSeed, fileReader, resultsCh)
+		go process(hashSeed, partition, resultsCh)
 	}
 	stats := make(statsMap, mapInitSize)
 	for range partitions {
 		statsPartition := <-resultsCh
 		merge(stats, statsPartition)
 	}
-	nameBuf := make([]byte, 101)
 	for _, item := range stats {
-		name := nameBuf[:item.nameLen]
-		fileReader.ReadAt(name, int64(item.namePos))
 		mMax := measurement2ToFloat64(item.max)
 		mMin := measurement2ToFloat64(item.min)
 		mAvg := measurement2ToFloat64(item.sum) / float64(item.count)
-		fmt.Printf("%s;%0.2f;%0.2f;%0.2f\n", name, mMax, mMin, mAvg)
+		fmt.Printf("%s;%0.2f;%0.2f;%0.2f\n", item.name, mMax, mMin, mAvg)
 	}
 
 	if os.Getenv("PROFILE") != "" {
@@ -95,53 +95,72 @@ func merge(tgt statsMap, src statsMap) {
 	}
 }
 
-func partitionFile(reader *mmap.ReaderAt) []filePartition {
+func partitionData(data []byte) [][]byte {
 	numPartitions := runtime.NumCPU()
-	partitions := make([]filePartition, numPartitions)
-	partitionSize := reader.Len() / numPartitions
+	partitions := make([][]byte, numPartitions)
+	partitionSize := len(data) / numPartitions
 	prevEnd := 0
 	for i := range numPartitions {
-		partition := filePartition{
-			start: prevEnd,
-			end:   prevEnd + partitionSize,
-		}
+		start := prevEnd
+		end := partitionSize * (i + 1)
 		if i == numPartitions-1 {
-			partition.end = reader.Len()
+			end = len(data)
 		} else {
-			for reader.At(partition.end-1) != byte('\n') {
-				partition.end += 1
+			for data[end-1] != byte('\n') && end < len(data) {
+				end += 1
 			}
 		}
-		prevEnd = partition.end
-		partitions[i] = partition
+		prevEnd = end
+		partitions[i] = data[start:end]
 	}
 	return partitions
 }
 
-func process(partition *filePartition, hashSeed maphash.Seed, reader *mmap.ReaderAt, resultCh chan statsMap) {
+func openMmap(filename string) (*mmapData, error) {
+	f, err := os.Open(filename)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	size := fi.Size()
+	data, err := syscall.Mmap(
+		int(f.Fd()),
+		0,
+		int(size),
+		syscall.PROT_READ,
+		syscall.MAP_PRIVATE|syscall.MAP_POPULATE,
+	)
+	if err != nil {
+		return nil, err
+	}
+	m := &mmapData{data: data}
+	runtime.SetFinalizer(m, (*mmapData).close)
+	return m, nil
+}
+
+func process(hashSeed maphash.Seed, data []byte, resultCh chan statsMap) {
 	stats := make(statsMap, mapInitSize)
-	hasher := maphash.Hash{}
-	hasher.SetSeed(hashSeed)
 	// The iterator pattern is a pleasant way to process data without allocating or copying
-	iterateRecords(partition, reader, func(namePos int, nameLen int, measurement int64) {
-		hasher.Reset()
-		for i := range nameLen {
-			hasher.WriteByte(reader.At(namePos + i))
-		}
-		key := hasher.Sum64()
+	iterateRecords(data, func(name []byte, measurement int64) {
+		key := maphash.Bytes(hashSeed, name)
 		if item, ok := stats[key]; ok {
 			item.count += 1
 			item.sum += measurement
 			item.min = min(item.min, measurement)
 			item.max = max(item.max, measurement)
 		} else {
+			nameCopy := make([]byte, len(name))
+			copy(nameCopy, name)
 			newItem := stationData{
-				namePos: namePos,
-				nameLen: nameLen,
-				min:     measurement,
-				max:     measurement,
-				sum:     measurement,
-				count:   1,
+				name:  nameCopy,
+				min:   measurement,
+				max:   measurement,
+				sum:   measurement,
+				count: 1,
 			}
 			stats[key] = &newItem
 		}
@@ -149,38 +168,38 @@ func process(partition *filePartition, hashSeed maphash.Seed, reader *mmap.Reade
 	resultCh <- stats
 }
 
-func iterateRecords(partition *filePartition, reader *mmap.ReaderAt, handler recordHandler) {
-	pos := partition.start
+func iterateRecords(data []byte, handler recordHandler) {
+	pos := 0
 	var nameStart int
-	var nameLen int
 	var measurement int64
-	for pos < partition.end {
-		for nameStart = pos; reader.At(pos) != ';'; pos++ {
+	var name []byte
+	for pos < len(data) {
+		for nameStart = pos; data[pos] != ';'; pos++ {
 		}
-		nameLen = pos - nameStart
-		pos = consumeMeasurement2(reader, pos+1, &measurement)
-		handler(nameStart, nameLen, measurement)
+		name = data[nameStart:pos]
+		pos = consumeMeasurement2(data, pos+1, &measurement)
+		handler(name, measurement)
 	}
 }
 
 // Value of the measurement, multiplied by 10^2
-func consumeMeasurement2(reader *mmap.ReaderAt, start int, result *int64) int {
+func consumeMeasurement2(data []byte, start int, result *int64) int {
 	pos := start
-	negative := reader.At(pos) == '-'
+	negative := data[pos] == '-'
 	if negative {
 		pos += 1
 	}
 	*result = 0
-	for reader.At(pos) != '\n' {
-		if reader.At(pos) == '.' {
+	for data[pos] != '\n' {
+		if data[pos] == '.' {
 			pos += 1
 		}
 		*result *= 10
-		*result += int64(reader.At(pos) - '0')
+		*result += int64(data[pos] - '0')
 		pos += 1
 	}
 	// Number has either 1 or 2 fractional digits
-	if reader.At(pos-2) == '.' {
+	if data[pos-2] == '.' {
 		*result *= 10
 	}
 	if negative {
