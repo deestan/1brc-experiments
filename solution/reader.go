@@ -35,10 +35,10 @@ func consumeMeasurement2(data []byte, pos int, result *Decimal2) int {
 	if negative {
 		pos += 1
 	}
-	fieldLen := 3
-	for ; data[pos+fieldLen] != '\n'; fieldLen++ {
+	fieldEnd := pos + 3
+	for ; data[fieldEnd] != '\n'; fieldEnd++ {
 	}
-	switch fieldLen {
+	switch fieldEnd - pos {
 	case 3: // x.x
 		*result = DIGITS[data[pos]]*100 + DIGITS[data[pos+2]]*10
 	case 4: // x.xx or xx.x
@@ -53,5 +53,5 @@ func consumeMeasurement2(data []byte, pos int, result *Decimal2) int {
 	if negative {
 		*result = -*result
 	}
-	return pos + fieldLen + 1
+	return fieldEnd + 1
 }
