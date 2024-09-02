@@ -48,9 +48,9 @@ func main() {
 
 	stats := processParallel(fileMap.data)
 	for _, item := range stats {
-		mMax := Decimal2ToFloat64(item.max)
-		mMin := Decimal2ToFloat64(item.min)
-		mAvg := Decimal2ToFloat64(item.sum) / float64(item.count)
+		mMax := Decimal1ToFloat64(item.max)
+		mMin := Decimal1ToFloat64(item.min)
+		mAvg := Decimal1ToFloat64(item.sum) / float64(item.count)
 		fmt.Printf("%s;%0.2f;%0.2f;%0.2f\n", item.name, mMax, mMin, mAvg)
 	}
 }

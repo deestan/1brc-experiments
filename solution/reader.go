@@ -4,11 +4,11 @@ import (
 	"iter"
 )
 
-type Decimal2 = int64
+type Decimal1 = int64
 
 type Record struct {
 	Name        []byte
-	Measurement Decimal2
+	Measurement Decimal1
 }
 
 var DIGITS_1 = [58]int64{
@@ -36,14 +36,6 @@ var DIGITS_100 = [58]int64{
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	0, 100, 200, 300, 400, 500, 600, 700, 800, 900,
 }
-var DIGITS_1000 = [58]int64{
-	0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000,
-}
 
 func Records(data []byte) iter.Seq[*Record] {
 	return func(yield func(*Record) bool) {
@@ -54,7 +46,7 @@ func Records(data []byte) iter.Seq[*Record] {
 			for nameStart = pos; data[pos] != ';'; pos++ {
 			}
 			record.Name = data[nameStart:pos]
-			pos = consumeMeasurement2(data, pos+1, &record.Measurement)
+			pos = consumeMeasurement(data, pos+1, &record.Measurement)
 			if !yield(&record) {
 				return
 			}
@@ -62,32 +54,29 @@ func Records(data []byte) iter.Seq[*Record] {
 	}
 }
 
-func consumeMeasurement2(data []byte, pos int, result *Decimal2) int {
+func consumeMeasurement(data []byte, pos int, result *Decimal1) int {
 	negative := data[pos] == '-'
 	if negative {
 		pos += 1
 	}
-	fieldEnd := pos + 3
-	for ; data[fieldEnd] != '\n'; fieldEnd++ {
-	}
-	switch fieldEnd - pos {
-	case 3: // x.x
-		*result = DIGITS_100[data[pos]] + DIGITS_10[data[pos+2]]
-	case 4: // x.xx or xx.x
-		if data[1] == '.' { // x.xx
-			*result = DIGITS_100[data[pos]] + DIGITS_100[data[pos+2]] + DIGITS_1[data[pos+3]]
-		} else { // xx.x
-			*result = DIGITS_1000[data[pos]] + DIGITS_100[data[pos+1]] + DIGITS_10[data[pos+3]]
-		}
-	case 5: // xx.xx
-		*result = DIGITS_1000[data[pos]] + DIGITS_100[data[pos+1]] + DIGITS_10[data[pos+3]] + DIGITS_1[data[pos+4]]
+	// Numbers are either length 3 or 4, ie. x.x or xx.x
+	length3 := data[pos+3] == '\n'
+	// If not competition code, should check and error on (!length3 && data[pos+4] != '\n')
+	if length3 {
+		*result = DIGITS_10[data[pos]] + DIGITS_1[data[pos+2]]
+	} else {
+		*result = DIGITS_100[data[pos]] + DIGITS_10[data[pos+1]] + DIGITS_1[data[pos+3]]
 	}
 	if negative {
 		*result = -*result
 	}
-	return fieldEnd + 1
+	if length3 {
+		return pos + 4
+	} else {
+		return pos + 5
+	}
 }
 
-func Decimal2ToFloat64(dec Decimal2) float64 {
-	return float64(dec) / 100
+func Decimal1ToFloat64(dec Decimal1) float64 {
+	return float64(dec) / 10
 }

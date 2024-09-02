@@ -26,7 +26,7 @@ func main() {
 		maxRecordLength = max(maxRecordLength, len(ws.name)+maxLengthAfterName)
 	}
 	maxFileSize := count * int64(maxRecordLength)
-	f, err := os.Create("measurements3.txt")
+	f, err := os.Create("measurements.txt")
 	if err != nil {
 		panic(err)
 	}
