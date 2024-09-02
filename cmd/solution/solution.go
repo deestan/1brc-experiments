@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"hash/maphash"
+	"internal/mmap"
+	"internal/reader"
 	"os"
 	"runtime"
 	"runtime/pprof"
@@ -34,24 +36,24 @@ func main() {
 		}()
 	}
 
-	inputFile := "../measurements_1B.txt"
+	inputFile := "measurements.txt"
 	if len(os.Args) > 1 {
 		inputFile = os.Args[1]
 	}
 	fmt.Fprintln(os.Stderr, "Reading records from", inputFile)
 
-	fileMap, err := NewMmapFile(inputFile)
+	fileMap, err := mmap.NewMmapFile(inputFile)
 	if err != nil {
 		panic(err)
 	}
 	defer fileMap.Close()
 
-	stats := processParallel(fileMap.data)
+	stats := processParallel(fileMap.Data)
 	for _, item := range stats {
-		mMax := Decimal1ToFloat64(item.max)
-		mMin := Decimal1ToFloat64(item.min)
-		mAvg := Decimal1ToFloat64(item.sum) / float64(item.count)
-		fmt.Printf("%s;%0.2f;%0.2f;%0.2f\n", item.name, mMax, mMin, mAvg)
+		mMax := reader.Decimal1ToFloat64(item.max)
+		mMin := reader.Decimal1ToFloat64(item.min)
+		mAvg := reader.Decimal1ToFloat64(item.sum) / float64(item.count)
+		fmt.Printf("%s;%0.1f;%0.1f;%0.1f\n", item.name, mMax, mMin, mAvg)
 	}
 }
 
@@ -104,7 +106,7 @@ func partitionData(data []byte, numPartitions int) [][]byte {
 
 func process(hashSeed maphash.Seed, data []byte, resultCh chan processedResults) {
 	results := make(processedResults, maxStations)
-	for record := range Records(data) {
+	for record := range reader.Records(data) {
 		key := maphash.Bytes(hashSeed, record.Name)
 		if item, ok := results[key]; ok {
 			item.count += 1

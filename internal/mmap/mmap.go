@@ -1,4 +1,4 @@
-package main
+package mmap
 
 import (
 	"os"
@@ -7,12 +7,12 @@ import (
 )
 
 type MmapFile struct {
-	data []byte
+	Data []byte
 }
 
 func (m *MmapFile) Close() error {
-	data := m.data
-	m.data = nil
+	data := m.Data
+	m.Data = nil
 	runtime.SetFinalizer(m, nil)
 	return syscall.Munmap(data)
 }
@@ -38,7 +38,7 @@ func NewMmapFile(filename string) (*MmapFile, error) {
 	if err != nil {
 		return nil, err
 	}
-	m := &MmapFile{data: data}
+	m := &MmapFile{Data: data}
 	runtime.SetFinalizer(m, (*MmapFile).Close)
 	return m, nil
 }
