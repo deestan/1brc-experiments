@@ -1,6 +1,17 @@
 package main
 
-import "iter"
+import (
+	"iter"
+)
+
+var DIGITS = [58]int64{
+	0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
+}
 
 func Records(data []byte) iter.Seq[*Record] {
 	return func(yield func(*Record) bool) {
@@ -11,7 +22,7 @@ func Records(data []byte) iter.Seq[*Record] {
 			for nameStart = pos; data[pos] != ';'; pos++ {
 			}
 			record.Name = data[nameStart:pos]
-			pos = parseMeasurement2(data, pos+1, &record.Measurement)
+			pos = consumeMeasurement2(data, pos+1, &record.Measurement)
 			if !yield(&record) {
 				return
 			}
@@ -19,26 +30,28 @@ func Records(data []byte) iter.Seq[*Record] {
 	}
 }
 
-func parseMeasurement2(data []byte, pos int, result *Decimal2) int {
+func consumeMeasurement2(data []byte, pos int, result *Decimal2) int {
 	negative := data[pos] == '-'
 	if negative {
 		pos += 1
 	}
-	*result = 0
-	for data[pos] != '\n' {
-		if data[pos] == '.' {
-			pos += 1
-		}
-		*result *= 10
-		*result += int64(data[pos] - '0')
-		pos += 1
+	fieldLen := 3
+	for ; data[pos+fieldLen] != '\n'; fieldLen++ {
 	}
-	// Number has either 1 or 2 fractional digits
-	if data[pos-2] == '.' {
-		*result *= 10
+	switch fieldLen {
+	case 3: // x.x
+		*result = DIGITS[data[pos]]*100 + DIGITS[data[pos+2]]*10
+	case 4: // x.xx or xx.x
+		if data[1] == '.' { // x.xx
+			*result = DIGITS[data[pos]]*100 + DIGITS[data[pos+2]]*100 + DIGITS[data[pos+3]]
+		} else { // xx.x
+			*result = DIGITS[data[pos]]*1000 + DIGITS[data[pos+1]]*100 + DIGITS[data[pos+3]]*10
+		}
+	case 5: // xx.xx
+		*result = DIGITS[data[pos]]*1000 + DIGITS[data[pos+1]]*100 + DIGITS[data[pos+3]]*10 + DIGITS[data[pos+4]]
 	}
 	if negative {
 		*result = -*result
 	}
-	return pos + 1
+	return pos + fieldLen + 1
 }
