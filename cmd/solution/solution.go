@@ -2,23 +2,21 @@ package main
 
 import (
 	"fmt"
-	"hash/maphash"
 	"internal/mmap"
 	"internal/reader"
 	"os"
 	"runtime"
 	"runtime/pprof"
+	"strings"
 )
 
 const maxStations uintptr = 10_000
 
 type weaterStationData struct {
 	min, max, sum int64
-	name          []byte
 	count         int
 }
-type weatherStationKey = uint64
-type processedResults = map[weatherStationKey]*weaterStationData
+type processedResults = map[string]*weaterStationData
 
 func main() {
 	if os.Getenv("PROFILE") != "" {
@@ -49,20 +47,19 @@ func main() {
 	defer fileMap.Close()
 
 	stats := processParallel(fileMap.Data)
-	for _, item := range stats {
+	for name, item := range stats {
 		mMax := reader.Decimal1ToFloat64(item.max)
 		mMin := reader.Decimal1ToFloat64(item.min)
 		mAvg := reader.Decimal1ToFloat64(item.sum) / float64(item.count)
-		fmt.Printf("%s;%0.1f;%0.1f;%0.1f\n", item.name, mMax, mMin, mAvg)
+		fmt.Printf("%s;%0.1f;%0.1f;%0.1f\n", name, mMax, mMin, mAvg)
 	}
 }
 
 func processParallel(data []byte) processedResults {
-	hashSeed := maphash.MakeSeed()
 	partitions := partitionData(data, runtime.NumCPU())
 	resultsCh := make(chan processedResults)
 	for _, partition := range partitions {
-		go process(hashSeed, partition, resultsCh)
+		go process(partition, resultsCh)
 	}
 	stats := make(processedResults, maxStations)
 	for range partitions {
@@ -104,26 +101,22 @@ func partitionData(data []byte, numPartitions int) [][]byte {
 	return partitions
 }
 
-func process(hashSeed maphash.Seed, data []byte, resultCh chan processedResults) {
+func process(data []byte, resultCh chan processedResults) {
 	results := make(processedResults, maxStations)
 	for record := range reader.Records(data) {
-		key := maphash.Bytes(hashSeed, record.Name)
-		if item, ok := results[key]; ok {
+		if item, ok := results[record.Name]; ok {
 			item.count += 1
 			item.sum += record.Measurement
 			item.min = min(item.min, record.Measurement)
 			item.max = max(item.max, record.Measurement)
 		} else {
-			nameCopy := make([]byte, len(record.Name))
-			copy(nameCopy, record.Name)
 			newItem := weaterStationData{
-				name:  nameCopy,
 				min:   record.Measurement,
 				max:   record.Measurement,
 				sum:   record.Measurement,
 				count: 1,
 			}
-			results[key] = &newItem
+			results[strings.Clone(record.Name)] = &newItem
 		}
 	}
 	resultCh <- results

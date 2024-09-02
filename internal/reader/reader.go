@@ -7,7 +7,7 @@ import (
 type Decimal1 = int64
 
 type Record struct {
-	Name        []byte
+	Name        string
 	Measurement Decimal1
 }
 
@@ -45,7 +45,7 @@ func Records(data []byte) iter.Seq[*Record] {
 		for pos < len(data) {
 			for nameStart = pos; data[pos] != ';'; pos++ {
 			}
-			record.Name = data[nameStart:pos]
+			record.Name = string(data[nameStart:pos])
 			pos = consumeMeasurement(data, pos+1, &record.Measurement)
 			if !yield(&record) {
 				return
