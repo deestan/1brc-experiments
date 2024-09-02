@@ -4,6 +4,13 @@ import (
 	"iter"
 )
 
+type Decimal2 = int64
+
+type Record struct {
+	Name        []byte
+	Measurement Decimal2
+}
+
 var DIGITS_1 = [58]int64{
 	0, 0, 0, 0, 0, 0, 0, 0,
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -79,4 +86,8 @@ func consumeMeasurement2(data []byte, pos int, result *Decimal2) int {
 		*result = -*result
 	}
 	return fieldEnd + 1
+}
+
+func Decimal2ToFloat64(dec Decimal2) float64 {
+	return float64(dec) / 100
 }
