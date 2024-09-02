@@ -6,7 +6,6 @@ import (
 	"os"
 	"runtime"
 	"runtime/pprof"
-	"syscall"
 )
 
 const maxStations uintptr = 10_000
@@ -20,9 +19,6 @@ type weatherStationKey = uint64
 type processedResults = map[weatherStationKey]*weaterStationData
 
 func main() {
-	if err := syscall.Setpriority(syscall.PRIO_PROCESS, 0, -20); err != nil {
-		fmt.Fprintln(os.Stderr, "Not superuser: running process in default priority")
-	}
 	if os.Getenv("PROFILE") != "" {
 		profFileName := os.Args[0] + ".prof"
 		fmt.Fprintln(os.Stderr, "### Profiling enabled")
