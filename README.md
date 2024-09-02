@@ -14,7 +14,7 @@ Execute the following steps to run the challenge:
 1. Create the measurements file with 1B rows (just once):
 
     ```
-    go run cmd/generate/generate 1000000000
+    go run cmd/generate/generate.go 1000000000
     ```
 
     This will take a minute.
