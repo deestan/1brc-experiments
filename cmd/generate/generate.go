@@ -33,44 +33,52 @@ func main() {
 	defer f.Close()
 	f.Truncate(maxFileSize)
 	written := int64(0)
-	measurementBuffer := make([]byte, maxLengthAfterName)
 	for range count {
 		station := SOURCE_STATIONS[fastrand.Int()%len(SOURCE_STATIONS)]
 		measurement := station.avg + fastrand.Int()%(MEASUREMENT_DIVERGENCE*2+1) - MEASUREMENT_DIVERGENCE
 		measurement = max(-999, min(999, measurement))
-		if n, err := f.Write([]byte(station.name)); err != nil {
-			panic(err)
-		} else {
-			written += int64(n)
-		}
-		bufPos := 0
-		if measurement < 0 {
-			measurementBuffer[0] = '-'
-			bufPos = 1
-			measurement = -measurement
-		}
-		scale := 100
-		if measurement < 100 {
-			scale = 10
-		}
-		for scale > 1 {
-			measurementBuffer[bufPos] = '0' + byte(measurement/scale)
-			measurement %= scale
-			scale /= 10
-			bufPos++
-		}
-		measurementBuffer[bufPos] = '.'
-		measurementBuffer[bufPos+1] = '0' + byte(measurement)
-		measurementBuffer[bufPos+2] = '\n'
-		bufPos += 3
-		if n, err := f.Write(measurementBuffer[:bufPos]); err != nil {
+		if n, err := writeMeasurement(f, station.name, measurement); err != nil {
 			panic(err)
 		} else {
 			written += int64(n)
 		}
 	}
 	f.Truncate(written)
-	f.Sync()
+}
+
+func writeMeasurement(f *os.File, stationName string, measurement int) (int, error) {
+	var written int
+	if n, err := f.Write([]byte(stationName)); err != nil {
+		return 0, err
+	} else {
+		written = n
+	}
+	measurementBuffer := [6]byte{}
+	bufPos := 0
+	if measurement < 0 {
+		measurementBuffer[0] = '-'
+		bufPos = 1
+		measurement = -measurement
+	}
+	scale := 100
+	if measurement < 100 {
+		scale = 10
+	}
+	for scale > 1 {
+		measurementBuffer[bufPos] = '0' + byte(measurement/scale)
+		measurement %= scale
+		scale /= 10
+		bufPos++
+	}
+	measurementBuffer[bufPos] = '.'
+	measurementBuffer[bufPos+1] = '0' + byte(measurement)
+	measurementBuffer[bufPos+2] = '\n'
+	bufPos += 3
+	if n, err := f.Write(measurementBuffer[:bufPos]); err != nil {
+		return 0, err
+	} else {
+		return written + n, nil
+	}
 }
 
 var SOURCE_STATIONS = [...]weatherStationSource{
