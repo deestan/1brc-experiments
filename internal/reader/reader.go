@@ -2,6 +2,7 @@ package reader
 
 import (
 	"iter"
+	"unsafe"
 )
 
 type Record struct {
@@ -25,11 +26,22 @@ func Records(data []byte) iter.Seq[*Record] {
 	}
 }
 
+type MutableString struct {
+	Data unsafe.Pointer
+	Len  int
+}
+
 func consumeName(data []byte, pos int, result *string) int {
-	var nameStart int
-	for nameStart = pos; data[pos] != ';'; pos++ {
+	start := pos
+	// Names are min length 1
+	pos++
+	for data[pos] != ';' {
+		pos++
 	}
-	*result = string(data[nameStart:pos])
+	// It would be nice if the compiler optimized this instead :'(
+	mutableResult := (*MutableString)(unsafe.Pointer(result))
+	mutableResult.Data = unsafe.Pointer(&data[start])
+	mutableResult.Len = pos - start
 	return pos + 1
 }
 
