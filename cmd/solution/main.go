@@ -7,16 +7,9 @@ import (
 	"os"
 	"runtime"
 	"runtime/pprof"
-	"strings"
 )
 
 const maxStations uintptr = 10_000
-
-type weaterStationData struct {
-	min, max, sum int64
-	count         int
-}
-type processedResults = map[string]*weaterStationData
 
 func main() {
 	if os.Getenv("PROFILE") != "" {
@@ -48,33 +41,33 @@ func main() {
 
 	stats := processParallel(fileMap.Data)
 	for name, item := range stats {
-		mMax := reader.Decimal1ToFloat64(item.max)
-		mMin := reader.Decimal1ToFloat64(item.min)
-		mAvg := reader.Decimal1ToFloat64(item.sum) / float64(item.count)
+		mMax := reader.Decimal1ToFloat64(item.Max)
+		mMin := reader.Decimal1ToFloat64(item.Min)
+		mAvg := reader.Decimal1ToFloat64(item.Sum) / float64(item.Count)
 		fmt.Printf("%s;%0.1f;%0.1f;%0.1f\n", name, mMax, mMin, mAvg)
 	}
 }
 
-func processParallel(data []byte) processedResults {
+func processParallel(data []byte) reader.ProcessedResults {
 	partitions := partitionData(data, runtime.NumCPU())
-	resultsCh := make(chan processedResults)
+	resultsCh := make(chan reader.ProcessedResults)
 	for _, partition := range partitions {
 		go process(partition, resultsCh)
 	}
-	stats := make(processedResults, maxStations)
+	stats := make(reader.ProcessedResults, maxStations)
 	for range partitions {
 		merge(stats, <-resultsCh)
 	}
 	return stats
 }
 
-func merge(tgt processedResults, src processedResults) {
+func merge(tgt reader.ProcessedResults, src reader.ProcessedResults) {
 	for key, srcItem := range src {
 		if tgtItem, ok := tgt[key]; ok {
-			tgtItem.count += srcItem.count
-			tgtItem.sum += srcItem.sum
-			tgtItem.min = min(tgtItem.min, srcItem.min)
-			tgtItem.max = max(tgtItem.max, srcItem.max)
+			tgtItem.Count += srcItem.Count
+			tgtItem.Sum += srcItem.Sum
+			tgtItem.Min = min(tgtItem.Min, srcItem.Min)
+			tgtItem.Max = max(tgtItem.Max, srcItem.Max)
 		} else {
 			tgt[key] = srcItem
 		}
@@ -101,23 +94,8 @@ func partitionData(data []byte, numPartitions int) [][]byte {
 	return partitions
 }
 
-func process(data []byte, resultCh chan processedResults) {
-	results := make(processedResults, maxStations)
-	for record := range reader.Records(data) {
-		if item, ok := results[record.Name]; ok {
-			item.count += 1
-			item.sum += record.Measurement
-			item.min = min(item.min, record.Measurement)
-			item.max = max(item.max, record.Measurement)
-		} else {
-			newItem := weaterStationData{
-				min:   record.Measurement,
-				max:   record.Measurement,
-				sum:   record.Measurement,
-				count: 1,
-			}
-			results[strings.Clone(record.Name)] = &newItem
-		}
-	}
+func process(data []byte, resultCh chan reader.ProcessedResults) {
+	results := make(reader.ProcessedResults, maxStations)
+	reader.IterInto(data, results)
 	resultCh <- results
 }
