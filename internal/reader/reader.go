@@ -17,6 +17,31 @@ type MutableString struct {
 	Len  int
 }
 
+var DECIMAL_1 = [58]int64{
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0,
+	0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
+}
+var DECIMAL_10 = [58]int64{
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0,
+	0, 10, 20, 30, 40, 50, 60, 70, 80, 90,
+}
+var DECIMAL_100 = [58]int64{
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0,
+	0, 100, 200, 300, 400, 500, 600, 700, 800, 900,
+}
+
 type ProcessedResults = map[string]*WeaterStationData
 
 func IterInto(data []byte, results ProcessedResults) {
@@ -42,14 +67,14 @@ func IterInto(data []byte, results ProcessedResults) {
 		// Numbers are either length 3 or 4, ie. x.x or xx.x
 		length3 := data[pos+3] == '\n'
 		if length3 {
-			recordMeasurement = (10*int64(data[pos]-'0') + int64(data[pos+2]-'0')) | negativizer
+			recordMeasurement = DECIMAL_10[data[pos]] + DECIMAL_1[data[pos+2]] | negativizer
 			pos += 4
 		} else {
 			// If not competition code, should check and error on (data[pos+4] != '\n')
-			recordMeasurement = (100*int64(data[pos]-'0') + 10*int64(data[pos+1]-'0') + int64(data[pos+3]-'0')) | negativizer
+			recordMeasurement = DECIMAL_100[data[pos]] + DECIMAL_10[data[pos+1]] + DECIMAL_1[data[pos+3]] | negativizer
 			pos += 5
 		}
-
+		// Update map
 		if item, ok := results[recordName]; ok {
 			item.Count += 1
 			item.Sum += recordMeasurement
