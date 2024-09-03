@@ -12,6 +12,9 @@ type Record struct {
 
 type Decimal1 = int64
 
+// Deeply mutates Record between each call to yield().
+// Iterator consumers must fully process the Record between
+// each iteration, and copy anything it wants to keep.
 func Records(data []byte) iter.Seq[*Record] {
 	return func(yield func(*Record) bool) {
 		record := Record{}
@@ -38,7 +41,6 @@ func consumeName(data []byte, pos int, result *string) int {
 	for data[pos] != ';' {
 		pos++
 	}
-	// It would be nice if the compiler optimized this instead :'(
 	mutableResult := (*MutableString)(unsafe.Pointer(result))
 	mutableResult.Data = unsafe.Pointer(&data[start])
 	mutableResult.Len = pos - start

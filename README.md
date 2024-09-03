@@ -14,7 +14,7 @@ Execute the following steps to run the challenge:
 1. Create the measurements file with 1B rows (just once):
 
     ```
-    go run cmd/generate/generate.go 1000000000
+    go run cmd/generate/main.go 1000000000
     ```
 
     This will take a minute.
@@ -23,7 +23,7 @@ Execute the following steps to run the challenge:
 2. Calculate the average measurement values:
 
     ```
-    go build cmd/solution/solution
+    go build -o solution cmd/solution/main.go
     ./solution
     ```
 
