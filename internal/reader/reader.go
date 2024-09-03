@@ -15,17 +15,22 @@ func Records(data []byte) iter.Seq[*Record] {
 	return func(yield func(*Record) bool) {
 		record := Record{}
 		pos := 0
-		var nameStart int
 		for pos < len(data) {
-			for nameStart = pos; data[pos] != ';'; pos++ {
-			}
-			record.Name = string(data[nameStart:pos])
-			pos = consumeMeasurement(data, pos+1, &record.Measurement)
+			pos = consumeName(data, pos, &record.Name)
+			pos = consumeMeasurement(data, pos, &record.Measurement)
 			if !yield(&record) {
 				return
 			}
 		}
 	}
+}
+
+func consumeName(data []byte, pos int, result *string) int {
+	var nameStart int
+	for nameStart = pos; data[pos] != ';'; pos++ {
+	}
+	*result = string(data[nameStart:pos])
+	return pos + 1
 }
 
 func consumeMeasurement(data []byte, pos int, result *Decimal1) int {
