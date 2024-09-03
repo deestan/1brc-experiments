@@ -9,6 +9,8 @@ type Record struct {
 	Measurement Decimal1
 }
 
+type Decimal1 = int64
+
 func Records(data []byte) iter.Seq[*Record] {
 	return func(yield func(*Record) bool) {
 		record := Record{}
@@ -25,8 +27,6 @@ func Records(data []byte) iter.Seq[*Record] {
 		}
 	}
 }
-
-type Decimal1 = int64
 
 func consumeMeasurement(data []byte, pos int, result *Decimal1) int {
 	negativizer := int64(0)
