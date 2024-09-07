@@ -48,28 +48,28 @@ func main() {
 	}
 }
 
-func processParallel(data []byte) reader.ProcessedResults {
+func processParallel(data []byte) map[string]*reader.WeaterStationData {
 	partitions := partitionData(data, runtime.NumCPU())
 	resultsCh := make(chan reader.ProcessedResults)
 	for _, partition := range partitions {
 		go process(partition, resultsCh)
 	}
-	stats := make(reader.ProcessedResults, maxStations)
+	stats := make(map[string]*reader.WeaterStationData, maxStations)
 	for range partitions {
 		merge(stats, <-resultsCh)
 	}
 	return stats
 }
 
-func merge(tgt reader.ProcessedResults, src reader.ProcessedResults) {
-	for key, srcItem := range src {
-		if tgtItem, ok := tgt[key]; ok {
+func merge(tgt map[string]*reader.WeaterStationData, src reader.ProcessedResults) {
+	for _, srcItem := range src {
+		if tgtItem, ok := tgt[srcItem.Name]; ok {
 			tgtItem.Count += srcItem.Count
 			tgtItem.Sum += srcItem.Sum
 			tgtItem.Min = min(tgtItem.Min, srcItem.Min)
 			tgtItem.Max = max(tgtItem.Max, srcItem.Max)
 		} else {
-			tgt[key] = srcItem
+			tgt[srcItem.Name] = srcItem
 		}
 	}
 }

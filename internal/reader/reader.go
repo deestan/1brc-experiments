@@ -1,20 +1,19 @@
 package reader
 
 import (
-	"strings"
-	"unsafe"
+	"github.com/bytedance/gopkg/util/xxhash3"
 )
 
 type Decimal1 = int64
 
 type WeaterStationData struct {
+	Name          string
 	Min, Max, Sum Decimal1
 	Count         int
 }
 
-type MutableString struct {
-	Data unsafe.Pointer
-	Len  int
+type IdentityHash struct {
+	Hash [2]uint64
 }
 
 var DECIMAL_1 = [58]int64{
@@ -42,12 +41,11 @@ var DECIMAL_100 = [58]int64{
 	0, 100, 200, 300, 400, 500, 600, 700, 800, 900,
 }
 
-type ProcessedResults = map[string]*WeaterStationData
+type ProcessedResults = map[IdentityHash]*WeaterStationData
 
 func IterInto(data []byte, results ProcessedResults) {
-	var recordName string
 	var recordMeasurement Decimal1
-	mutableName := (*MutableString)(unsafe.Pointer(&recordName))
+	idKey := IdentityHash{}
 	pos := 0
 	for pos < len(data) {
 		// Read name
@@ -55,8 +53,7 @@ func IterInto(data []byte, results ProcessedResults) {
 		pos++
 		for ; data[pos] != ';'; pos++ {
 		}
-		mutableName.Data = unsafe.Pointer(&data[recordStart])
-		mutableName.Len = pos - recordStart
+		idKey.Hash = xxhash3.Hash128(data[recordStart:pos])
 		pos++
 		// Read measurement
 		negativizer := int64(0)
@@ -75,13 +72,14 @@ func IterInto(data []byte, results ProcessedResults) {
 			pos += 5
 		}
 		// Update map
-		if item, ok := results[recordName]; ok {
+		if item, ok := results[idKey]; ok {
 			item.Count += 1
 			item.Sum += recordMeasurement
 			item.Min = min(item.Min, recordMeasurement)
 			item.Max = max(item.Max, recordMeasurement)
 		} else {
-			results[strings.Clone(recordName)] = &WeaterStationData{
+			results[idKey] = &WeaterStationData{
+				Name:  string(data[recordStart:pos]),
 				Min:   recordMeasurement,
 				Max:   recordMeasurement,
 				Sum:   recordMeasurement,
