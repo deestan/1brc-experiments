@@ -1,7 +1,7 @@
 package reader
 
 import (
-	"github.com/bytedance/gopkg/util/xxhash3"
+	"gitee.com/menciis/gkit/sys/xxhash3"
 )
 
 type Decimal1 = int64
@@ -45,8 +45,8 @@ type ProcessedResults = map[IdentityHash]*WeaterStationData
 
 func IterInto(data []byte, results ProcessedResults) {
 	var recordMeasurement Decimal1
-	idKey := IdentityHash{}
 	pos := 0
+	idKey := IdentityHash{}
 	for pos < len(data) {
 		// Read name
 		recordStart := pos
