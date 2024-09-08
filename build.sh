@@ -5,4 +5,4 @@ if [ -f ./solution.prof ]; then
     PROF="-pgoprofile ./solution.prof"
 fi
 rm -f ./solution
-go build -gcflags "$PROF -d=inlfuncswithclosures -d=inlstaticinit -d=inlbudgetslack=100000 -d=alignhot -d zerocopy -d pgoinline -d=pgoinlinebudget=100000 -d pgodevirtualize -d disablenil" -o ./solution ./cmd/solution/*.go
+go build -gcflags "$PROF -d=inlfuncswithclosures -d=inlstaticinit -d=inlbudgetslack=100000 -d=alignhot -d pgoinline -d=pgoinlinebudget=100000 -d pgodevirtualize -d disablenil" -o ./solution ./cmd/solution/*.go
