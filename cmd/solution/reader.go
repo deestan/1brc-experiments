@@ -1,7 +1,9 @@
 package main
 
 import (
+	"fmt"
 	"iter"
+	"unsafe"
 
 	"gitee.com/menciis/gkit/sys/xxhash3"
 )
@@ -15,31 +17,6 @@ type WeatherStationData struct {
 	Name          string
 	Min, Max, Sum Decimal1
 	Count         int
-}
-
-var DECIMAL_1 = [58]int64{
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0,
-	0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
-}
-var DECIMAL_10 = [58]int64{
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0,
-	0, 10, 20, 30, 40, 50, 60, 70, 80, 90,
-}
-var DECIMAL_100 = [58]int64{
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0,
-	0, 100, 200, 300, 400, 500, 600, 700, 800, 900,
 }
 
 type ProcessedResults struct {
@@ -103,10 +80,10 @@ func (p *ProcessedResults) Entries() iter.Seq[*WeatherStationData] {
 	}
 }
 
-func IterInto(data []byte, results *ProcessedResults) {
-	var recordMeasurement Decimal1
-	pos := 0
-	for pos < len(data) {
+func IterInto(data []byte, results *ProcessedResults, numberLookup *[65536]Decimal1) {
+	pos := int64(0)
+	end := int64(len(data))
+	for pos < end {
 		// Read name
 		recordStart := pos
 		pos++
@@ -120,22 +97,33 @@ func IterInto(data []byte, results *ProcessedResults) {
 			pos += 1
 			negativizer = -1
 		}
-		// Numbers are either length 3 or 4, ie. x.x or xx.x
-		length3 := data[pos+3] == '\n'
-		if length3 {
-			recordMeasurement = DECIMAL_10[data[pos]] + DECIMAL_1[data[pos+2]] | negativizer
-			pos += 4
-		} else {
-			// If not competition code, should check and error on (data[pos+4] != '\n')
-			recordMeasurement = DECIMAL_100[data[pos]] + DECIMAL_10[data[pos+1]] + DECIMAL_1[data[pos+3]] | negativizer
-			pos += 5
-		}
+		foldedLookup := fold((*uint32)(unsafe.Pointer(&data[pos])))
+		num := numberLookup[foldedLookup]
+		recordMeasurement := num&0x3ff | negativizer
+		pos += num >> 10
 		// Update map
 		item.Count += 1
 		item.Sum += recordMeasurement
 		item.Min = min(item.Min, recordMeasurement)
 		item.Max = max(item.Max, recordMeasurement)
 	}
+}
+
+func PrepareLookup() [65536]Decimal1 {
+	v := [65536]Decimal1{}
+	for i := range 1000 {
+		s := fmt.Sprintf("%d.%d\n", i/10, i%10)
+		b := []byte(s)
+		foldedLookup := fold((*uint32)(unsafe.Pointer(&b[0])))
+		skip := int64(len(s) << 10)
+		v[foldedLookup] = Decimal1(i) | skip
+	}
+	return v
+}
+
+func fold(val *uint32) uint16 {
+	v := *val & 0x0f0f0f0f
+	return uint16(v) | uint16(v>>12)
 }
 
 func Decimal1ToFloat64(dec Decimal1) float64 {

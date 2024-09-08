@@ -47,10 +47,11 @@ func main() {
 }
 
 func processParallel(data []byte) map[string]*WeatherStationData {
+	lookup := PrepareLookup()
 	partitions := partitionData(data, runtime.NumCPU())
 	resultsCh := make(chan *ProcessedResults)
 	for _, partition := range partitions {
-		go process(partition, resultsCh)
+		go process(partition, resultsCh, &lookup)
 	}
 	stats := make(map[string]*WeatherStationData, maxStations)
 	for range partitions {
@@ -92,8 +93,8 @@ func partitionData(data []byte, numPartitions int) [][]byte {
 	return partitions
 }
 
-func process(data []byte, resultCh chan *ProcessedResults) {
+func process(data []byte, resultCh chan *ProcessedResults, lookup *[65536]Decimal1) {
 	results := NewProcessedResults()
-	IterInto(data, &results)
+	IterInto(data, &results, lookup)
 	resultCh <- &results
 }
