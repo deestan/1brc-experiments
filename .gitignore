@@ -2,3 +2,7 @@ measurements*.txt
 /solution
 /ramfs
 solution.prof
+experiment
+*.prof
+profile*.gif
+trace.fxt*
