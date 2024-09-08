@@ -1,9 +1,13 @@
 package main
 
 import (
-	"github.com/bytedance/gopkg/lang/fastrand"
+	"fmt"
+	"math"
 	"os"
+	"runtime/debug"
 	"strconv"
+
+	"github.com/bytedance/gopkg/lang/fastrand"
 )
 
 type Decimal1 = int
@@ -16,6 +20,22 @@ type weatherStationSource struct {
 const MEASUREMENT_DIVERGENCE = 109
 
 func main() {
+	debug.SetGCPercent(-1)
+	debug.SetMemoryLimit(math.MaxInt64)
+	sumsies := map[int]string{}
+	for _, station := range SOURCE_STATIONS {
+		s := 0
+		n := station.name[:len(station.name)-1]
+		for _, b := range []byte(n) {
+			s += int(b)
+		}
+		if c, ok := sumsies[s]; ok {
+			if len(c) == len(n) {
+				fmt.Println("collision for " + n + " and " + c)
+			}
+		}
+		sumsies[s] = n
+	}
 	count, err := strconv.ParseInt(os.Args[1], 10, 64)
 	if err != nil {
 		panic("missing or invalid parameter: number of records to create (int)")

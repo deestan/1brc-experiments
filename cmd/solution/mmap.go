@@ -1,4 +1,4 @@
-package mmap
+package main
 
 import (
 	"os"

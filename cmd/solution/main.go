@@ -2,8 +2,6 @@ package main
 
 import (
 	"fmt"
-	"internal/mmap"
-	"internal/reader"
 	"os"
 	"runtime"
 	"runtime/pprof"
@@ -33,7 +31,7 @@ func main() {
 	}
 	fmt.Fprintln(os.Stderr, "Reading records from", inputFile)
 
-	fileMap, err := mmap.NewMmapFile(inputFile)
+	fileMap, err := NewMmapFile(inputFile)
 	if err != nil {
 		panic(err)
 	}
@@ -41,27 +39,27 @@ func main() {
 
 	stats := processParallel(fileMap.Data)
 	for name, item := range stats {
-		mMax := reader.Decimal1ToFloat64(item.Max)
-		mMin := reader.Decimal1ToFloat64(item.Min)
-		mAvg := reader.Decimal1ToFloat64(item.Sum) / float64(item.Count)
+		mMax := Decimal1ToFloat64(item.Max)
+		mMin := Decimal1ToFloat64(item.Min)
+		mAvg := Decimal1ToFloat64(item.Sum) / float64(item.Count)
 		fmt.Printf("%s;%0.1f;%0.1f;%0.1f\n", name, mMax, mMin, mAvg)
 	}
 }
 
-func processParallel(data []byte) map[string]*reader.WeatherStationData {
+func processParallel(data []byte) map[string]*WeatherStationData {
 	partitions := partitionData(data, runtime.NumCPU())
-	resultsCh := make(chan *reader.ProcessedResults)
+	resultsCh := make(chan *ProcessedResults)
 	for _, partition := range partitions {
 		go process(partition, resultsCh)
 	}
-	stats := make(map[string]*reader.WeatherStationData, maxStations)
+	stats := make(map[string]*WeatherStationData, maxStations)
 	for range partitions {
 		merge(stats, <-resultsCh)
 	}
 	return stats
 }
 
-func merge(tgt map[string]*reader.WeatherStationData, src *reader.ProcessedResults) {
+func merge(tgt map[string]*WeatherStationData, src *ProcessedResults) {
 	for srcItem := range src.Entries() {
 		if tgtItem, ok := tgt[srcItem.Name]; ok {
 			tgtItem.Count += srcItem.Count
@@ -94,8 +92,8 @@ func partitionData(data []byte, numPartitions int) [][]byte {
 	return partitions
 }
 
-func process(data []byte, resultCh chan *reader.ProcessedResults) {
-	results := reader.NewProcessedResults()
-	reader.IterInto(data, &results)
+func process(data []byte, resultCh chan *ProcessedResults) {
+	results := NewProcessedResults()
+	IterInto(data, &results)
 	resultCh <- &results
 }
