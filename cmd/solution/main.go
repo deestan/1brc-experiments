@@ -48,21 +48,21 @@ func main() {
 	}
 }
 
-func processParallel(data []byte) map[string]*reader.WeaterStationData {
+func processParallel(data []byte) map[string]*reader.WeatherStationData {
 	partitions := partitionData(data, runtime.NumCPU())
-	resultsCh := make(chan reader.ProcessedResults)
+	resultsCh := make(chan *reader.ProcessedResults)
 	for _, partition := range partitions {
 		go process(partition, resultsCh)
 	}
-	stats := make(map[string]*reader.WeaterStationData, maxStations)
+	stats := make(map[string]*reader.WeatherStationData, maxStations)
 	for range partitions {
 		merge(stats, <-resultsCh)
 	}
 	return stats
 }
 
-func merge(tgt map[string]*reader.WeaterStationData, src reader.ProcessedResults) {
-	for _, srcItem := range src {
+func merge(tgt map[string]*reader.WeatherStationData, src *reader.ProcessedResults) {
+	for srcItem := range src.Entries() {
 		if tgtItem, ok := tgt[srcItem.Name]; ok {
 			tgtItem.Count += srcItem.Count
 			tgtItem.Sum += srcItem.Sum
@@ -94,8 +94,8 @@ func partitionData(data []byte, numPartitions int) [][]byte {
 	return partitions
 }
 
-func process(data []byte, resultCh chan reader.ProcessedResults) {
-	results := make(reader.ProcessedResults, maxStations)
-	reader.IterInto(data, results)
-	resultCh <- results
+func process(data []byte, resultCh chan *reader.ProcessedResults) {
+	results := reader.NewProcessedResults()
+	reader.IterInto(data, &results)
+	resultCh <- &results
 }

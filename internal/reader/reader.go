@@ -1,19 +1,20 @@
 package reader
 
 import (
+	"iter"
+
 	"gitee.com/menciis/gkit/sys/xxhash3"
 )
 
 type Decimal1 = int64
 
-type WeaterStationData struct {
+type IdentityHash = [2]uint64
+
+type WeatherStationData struct {
+	Id            IdentityHash
 	Name          string
 	Min, Max, Sum Decimal1
 	Count         int
-}
-
-type IdentityHash struct {
-	Hash [2]uint64
 }
 
 var DECIMAL_1 = [58]int64{
@@ -41,19 +42,77 @@ var DECIMAL_100 = [58]int64{
 	0, 100, 200, 300, 400, 500, 600, 700, 800, 900,
 }
 
-type ProcessedResults = map[IdentityHash]*WeaterStationData
+type ProcessedResults struct {
+	lists   [65536 + 10000]CollisionList
+	freePos int
+}
 
-func IterInto(data []byte, results ProcessedResults) {
+type CollisionList struct {
+	v    WeatherStationData
+	next *CollisionList
+}
+
+func NewProcessedResults() ProcessedResults {
+	return ProcessedResults{freePos: 65536}
+}
+
+func (p *ProcessedResults) get(name []byte) *WeatherStationData {
+	id := xxhash3.Hash128(name)
+	lookupHash := uint16(id[0])
+	collisionList := &p.lists[lookupHash]
+	if collisionList.v.Count == 0 {
+		item := &collisionList.v
+		item.Name = string(name)
+		item.Id = id
+		item.Min = 999
+		item.Max = -999
+		return item
+	}
+	for {
+		if collisionList.v.Id[0] == id[0] && collisionList.v.Id[1] == id[1] {
+			return &collisionList.v
+		}
+		if collisionList.next == nil {
+			break
+		}
+		collisionList = collisionList.next
+	}
+	collisionList.next = &p.lists[p.freePos]
+	p.freePos++
+	item := &collisionList.next.v
+	item.Name = string(name)
+	item.Id = id
+	item.Min = 999
+	item.Max = -999
+	return item
+}
+
+func (p *ProcessedResults) Entries() iter.Seq[*WeatherStationData] {
+	return func(yield func(*WeatherStationData) bool) {
+		for i := range p.lists {
+			list := &p.lists[i]
+			for list != nil {
+				if list.v.Count != 0 {
+					if !yield(&list.v) {
+						return
+					}
+				}
+				list = list.next
+			}
+		}
+	}
+}
+
+func IterInto(data []byte, results *ProcessedResults) {
 	var recordMeasurement Decimal1
 	pos := 0
-	idKey := IdentityHash{}
 	for pos < len(data) {
 		// Read name
 		recordStart := pos
 		pos++
 		for ; data[pos] != ';'; pos++ {
 		}
-		idKey.Hash = xxhash3.Hash128(data[recordStart:pos])
+		item := results.get(data[recordStart:pos])
 		pos++
 		// Read measurement
 		negativizer := int64(0)
@@ -72,20 +131,10 @@ func IterInto(data []byte, results ProcessedResults) {
 			pos += 5
 		}
 		// Update map
-		if item, ok := results[idKey]; ok {
-			item.Count += 1
-			item.Sum += recordMeasurement
-			item.Min = min(item.Min, recordMeasurement)
-			item.Max = max(item.Max, recordMeasurement)
-		} else {
-			results[idKey] = &WeaterStationData{
-				Name:  string(data[recordStart:pos]),
-				Min:   recordMeasurement,
-				Max:   recordMeasurement,
-				Sum:   recordMeasurement,
-				Count: 1,
-			}
-		}
+		item.Count += 1
+		item.Sum += recordMeasurement
+		item.Min = min(item.Min, recordMeasurement)
+		item.Max = max(item.Max, recordMeasurement)
 	}
 }
 
