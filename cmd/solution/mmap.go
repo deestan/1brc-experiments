@@ -33,7 +33,7 @@ func NewMmapFile(filename string) (*MmapFile, error) {
 		0,
 		int(size),
 		syscall.PROT_READ,
-		syscall.MAP_PRIVATE|syscall.MAP_POPULATE,
+		syscall.MAP_SHARED|syscall.MAP_POPULATE,
 	)
 	if err != nil {
 		return nil, err
