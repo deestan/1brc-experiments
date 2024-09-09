@@ -5,118 +5,135 @@ import (
 	"iter"
 	"unsafe"
 
-	"gitee.com/menciis/gkit/sys/xxhash3"
+	"github.com/cespare/xxhash/v2"
 )
 
-type Decimal1 = int64
+type Decimal1_64 = int64
+type Decimal1_16 = int16
 
-type IdentityHash = [2]uint64
+type IdentityHash uint64
 
 type WeatherStationData struct {
-	Id            IdentityHash
-	Name          string
-	Min, Max, Sum Decimal1
-	Count         int
+	Id       IdentityHash
+	Name     string
+	Sum      Decimal1_64
+	Count    uint32
+	Min, Max Decimal1_16
+}
+
+func (w *WeatherStationData) Empty() bool {
+	return w.Count == 0
+}
+
+func (w *WeatherStationData) Update(measurement Decimal1_16) {
+	w.Count += 1
+	w.Sum += Decimal1_64(measurement)
+	w.Min = min(w.Min, measurement)
+	w.Max = max(w.Max, measurement)
 }
 
 type ProcessedResults struct {
-	lists   [65536 + 10000]CollisionList
-	freePos int
+	items [65536]WeatherStationData
 }
 
-type CollisionList struct {
-	v    WeatherStationData
-	next *CollisionList
+func (p *ProcessedResults) MergeFrom(q *ProcessedResults) {
+	for i := range q.items {
+		if q.items[i].Count == 0 {
+			continue
+		}
+		if pItem, newItem := p.get(q.items[i].Id); newItem != nil {
+			*newItem = q.items[i]
+		} else {
+			pItem.Count += q.items[i].Count
+			pItem.Sum += q.items[i].Sum
+			pItem.Min = min(pItem.Min, q.items[i].Min)
+			pItem.Max = min(pItem.Max, q.items[i].Max)
+		}
+	}
 }
 
-func NewProcessedResults() ProcessedResults {
-	return ProcessedResults{freePos: 65536}
-}
-
-func (p *ProcessedResults) get(name []byte) *WeatherStationData {
-	id := xxhash3.Hash128(name)
-	lookupHash := uint16(id[0])
-	collisionList := &p.lists[lookupHash]
-	if collisionList.v.Count == 0 {
-		item := &collisionList.v
-		item.Name = string(name)
-		item.Id = id
-		item.Min = 999
-		item.Max = -999
-		return item
+func (p *ProcessedResults) get(id IdentityHash) (*WeatherStationData, *WeatherStationData) {
+	index := uint16(id)
+	if p.items[index].Count == 0 {
+		return nil, &p.items[index]
 	}
 	for {
-		if collisionList.v.Id[0] == id[0] && collisionList.v.Id[1] == id[1] {
-			return &collisionList.v
+		if p.items[index].Id == id {
+			return &p.items[index], nil
 		}
-		if collisionList.next == nil {
+		index = index + 1
+		if p.items[index].Count == 0 {
 			break
 		}
-		collisionList = collisionList.next
 	}
-	collisionList.next = &p.lists[p.freePos]
-	p.freePos++
-	item := &collisionList.next.v
-	item.Name = string(name)
-	item.Id = id
-	item.Min = 999
-	item.Max = -999
-	return item
+	return nil, &p.items[index]
 }
 
 func (p *ProcessedResults) Entries() iter.Seq[*WeatherStationData] {
 	return func(yield func(*WeatherStationData) bool) {
-		for i := range p.lists {
-			list := &p.lists[i]
-			for list != nil {
-				if list.v.Count != 0 {
-					if !yield(&list.v) {
-						return
-					}
+		for i := range p.items {
+			if !p.items[i].Empty() {
+				if !yield(&p.items[i]) {
+					return
 				}
-				list = list.next
 			}
 		}
 	}
 }
 
-func IterInto(data []byte, results *ProcessedResults, numberLookup *[65536]Decimal1) {
-	pos := int64(0)
-	end := int64(len(data))
+func noDelimInFirst8(data *byte) bool {
+	n := *(*uint64)(unsafe.Pointer(data)) ^ (';' * 0x0101010101010101)
+	return (n-0x0101010101010101)&^n&0x8080808080808080 == 0
+}
+
+func IterInto(data []byte, results *ProcessedResults, numberLookup *[65536]Decimal1_16) {
+	pos := 0
+	end := len(data)
 	for pos < end {
 		// Read name
 		recordStart := pos
 		pos++
+		for pos < end-8 && noDelimInFirst8(&data[pos]) {
+			pos += 8
+		}
 		for ; data[pos] != ';'; pos++ {
 		}
-		item := results.get(data[recordStart:pos])
+		name := data[recordStart:pos]
+		id := IdentityHash(xxhash.Sum64(name))
 		pos++
 		// Read measurement
-		negativizer := int64(0)
+		negativizer := int16(0)
 		if data[pos] == '-' {
 			pos += 1
 			negativizer = -1
 		}
 		foldedLookup := fold((*uint32)(unsafe.Pointer(&data[pos])))
+		item, newItem := results.get(id)
 		num := numberLookup[foldedLookup]
 		recordMeasurement := num&0x3ff | negativizer
-		pos += num >> 10
+		pos += int(num >> 10)
 		// Update map
-		item.Count += 1
-		item.Sum += recordMeasurement
-		item.Min = min(item.Min, recordMeasurement)
-		item.Max = max(item.Max, recordMeasurement)
+		if newItem != nil {
+			newItem.Name = string(name)
+			newItem.Id = id
+			newItem.Min = recordMeasurement
+			newItem.Max = recordMeasurement
+			newItem.Sum = Decimal1_64(recordMeasurement)
+			newItem.Count = 1
+		} else {
+			item.Update(recordMeasurement)
+		}
 	}
 }
 
-func PrepareLookup() [65536]Decimal1 {
-	v := [65536]Decimal1{}
+func PrepareDecimal1Lookup() [65536]Decimal1_16 {
+	v := [65536]Decimal1_16{}
 	for i := range 1000 {
 		s := fmt.Sprintf("%d.%d\n", i/10, i%10)
 		b := []byte(s)
 		foldedLookup := fold((*uint32)(unsafe.Pointer(&b[0])))
-		skip := int64(len(s) << 10)
-		v[foldedLookup] = Decimal1(i) | skip
+		skip := int16(len(s) << 10)
+		v[foldedLookup] = Decimal1_16(i) | skip
 	}
 	return v
 }
@@ -126,6 +143,10 @@ func fold(val *uint32) uint16 {
 	return uint16(v) | uint16(v>>12)
 }
 
-func Decimal1ToFloat64(dec Decimal1) float64 {
+func Decimal1_64ToFloat(dec Decimal1_64) float64 {
+	return float64(dec) / 10
+}
+
+func Decimal1_16ToFloat(dec Decimal1_16) float64 {
 	return float64(dec) / 10
 }
