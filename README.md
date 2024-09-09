@@ -23,13 +23,17 @@ Execute the following steps to run the challenge:
 2. Calculate the average measurement values:
 
     ```
-    go build -o solution cmd/solution/main.go
+    go build -o solution cmd/solution/*.go
     ./solution
     ```
 
 # Rules and limits
 
-Who knows at this point.
+Who knows at this point. Personal rules for my own non-submitting journey:
+
+- Using libraries, since I'm still evaluating stuff. Their algorithms can always be assimilated if need be.
+- Keeping input name collision chance below "hit by meteor" level. I.e. an identity hash needs at least 90-ish bits.
+- Reading from RAM drive.
 
 ## Entering the Challenge
 
