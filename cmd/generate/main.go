@@ -2,9 +2,7 @@ package main
 
 import (
 	"fmt"
-	"math"
 	"os"
-	"runtime/debug"
 	"strconv"
 
 	"github.com/bytedance/gopkg/lang/fastrand"
@@ -20,8 +18,6 @@ type weatherStationSource struct {
 const MEASUREMENT_DIVERGENCE = 109
 
 func main() {
-	debug.SetGCPercent(-1)
-	debug.SetMemoryLimit(math.MaxInt64)
 	sumsies := map[int]string{}
 	for _, station := range SOURCE_STATIONS {
 		s := 0

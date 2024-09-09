@@ -2,14 +2,18 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"runtime"
+	"runtime/debug"
 	"runtime/pprof"
 )
 
 const maxStations uintptr = 10_000
 
 func main() {
+	debug.SetGCPercent(-1)
+	debug.SetMemoryLimit(math.MaxInt64)
 	if os.Getenv("PROFILE") != "" {
 		profFileName := os.Args[0] + ".prof"
 		fmt.Fprintln(os.Stderr, "### Profiling enabled")
