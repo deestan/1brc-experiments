@@ -33,7 +33,8 @@ func main() {
 	}
 	fmt.Fprintln(os.Stderr, "Reading records from", inputFile)
 
-	fileMap, err := NewMmapFile(inputFile)
+	// Add a few bytes of padding so we can read past end of file for some calculations
+	fileMap, err := NewMmapFile(inputFile, 3)
 	if err != nil {
 		panic(err)
 	}

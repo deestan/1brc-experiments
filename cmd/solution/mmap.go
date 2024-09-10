@@ -17,7 +17,7 @@ func (m *MmapFile) Close() error {
 	return syscall.Munmap(data)
 }
 
-func NewMmapFile(filename string) (*MmapFile, error) {
+func NewMmapFile(filename string, pad int) (*MmapFile, error) {
 	f, err := os.Open(filename)
 	if err != nil {
 		return nil, err
@@ -31,7 +31,7 @@ func NewMmapFile(filename string) (*MmapFile, error) {
 	data, err := syscall.Mmap(
 		int(f.Fd()),
 		0,
-		int(size),
+		int(size)+pad,
 		syscall.PROT_READ,
 		syscall.MAP_SHARED|syscall.MAP_POPULATE,
 	)
@@ -41,7 +41,7 @@ func NewMmapFile(filename string) (*MmapFile, error) {
 	if err := syscall.Madvise(data, syscall.MADV_SEQUENTIAL|syscall.MADV_HUGEPAGE); err != nil {
 		return nil, err
 	}
-	m := &MmapFile{Data: data}
+	m := &MmapFile{Data: data[:len(data)-pad]}
 	runtime.SetFinalizer(m, (*MmapFile).Close)
 	return m, nil
 }

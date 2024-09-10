@@ -83,9 +83,9 @@ func (p *ProcessedResults) Entries() iter.Seq[*WeatherStationData] {
 	}
 }
 
-func noDelimInFirst8(data *byte) bool {
+func detectDelimiter(data *byte) uint64 {
 	n := *(*uint64)(unsafe.Pointer(data)) ^ (';' * 0x0101010101010101)
-	return (n-0x0101010101010101)&^n&0x8080808080808080 == 0
+	return (n - 0x0101010101010101) &^ n & 0x8080808080808080
 }
 
 func IterInto(data []byte, results *ProcessedResults, numberLookup *[65536]Decimal1_16) {
@@ -95,10 +95,47 @@ func IterInto(data []byte, results *ProcessedResults, numberLookup *[65536]Decim
 		// Read name
 		recordStart := pos
 		pos++
-		for pos < end-8 && noDelimInFirst8(&data[pos]) {
-			pos += 8
-		}
-		for ; data[pos] != ';'; pos++ {
+		for {
+			skip := detectDelimiter(&data[pos])
+			if skip == 0 {
+				pos += 8
+				continue
+			}
+			if skip&0x80 != 0 {
+				break
+			}
+			skip >>= 8
+			pos++
+			if skip&0x80 != 0 {
+				break
+			}
+			skip >>= 8
+			pos++
+			if skip&0x80 != 0 {
+				break
+			}
+			skip >>= 8
+			pos++
+			if skip&0x80 != 0 {
+				break
+			}
+			skip >>= 8
+			pos++
+			if skip&0x80 != 0 {
+				break
+			}
+			skip >>= 8
+			pos++
+			if skip&0x80 != 0 {
+				break
+			}
+			skip >>= 8
+			pos++
+			if skip&0x80 != 0 {
+				break
+			}
+			skip >>= 8
+			pos++
 		}
 		name := data[recordStart:pos]
 		id := IdentityHash(xxhash.Sum64(name))
