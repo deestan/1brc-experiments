@@ -49,14 +49,17 @@ func main() {
 	}
 }
 
-func processParallel(data []byte) ProcessedResults {
+func processParallel(data []byte) *ProcessedResults {
 	lookup := PrepareDecimal1Lookup()
 	partitions := partitionData(data, runtime.NumCPU())
 	resultsCh := make(chan *ProcessedResults)
 	for _, partition := range partitions {
 		go process(partition, resultsCh, &lookup)
 	}
-	stats := ProcessedResults{}
+	stats, err := Alloc[ProcessedResults](ProcessedResultsSize)
+	if err != nil {
+		panic(err)
+	}
 	for range partitions {
 		stats.MergeFrom(<-resultsCh)
 	}
@@ -84,7 +87,10 @@ func partitionData(data []byte, numPartitions int) [][]byte {
 }
 
 func process(data []byte, resultCh chan *ProcessedResults, lookup *[65536]Decimal1_16) {
-	results := ProcessedResults{}
-	IterInto(data, &results, lookup)
-	resultCh <- &results
+	results, err := Alloc[ProcessedResults](ProcessedResultsSize)
+	if err != nil {
+		panic(err)
+	}
+	IterInto(data, results, lookup)
+	resultCh <- results
 }

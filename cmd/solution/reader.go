@@ -38,6 +38,8 @@ type ProcessedResults struct {
 	items [MAP_SIZE]WeatherStationData
 }
 
+const ProcessedResultsSize = int64(unsafe.Sizeof(ProcessedResults{}))
+
 func (p *ProcessedResults) MergeFrom(q *ProcessedResults) {
 	for i := range q.items {
 		if q.items[i].Count == 0 {
