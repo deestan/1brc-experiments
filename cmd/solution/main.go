@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"runtime/debug"
 	"runtime/pprof"
+	"unsafe"
 )
 
 func main() {
@@ -84,6 +85,9 @@ func partitionData(data []byte, numPartitions int) [][]byte {
 
 func process(data []byte, resultCh chan *ProcessedResults, lookup *[65536]Decimal1_16) {
 	results := ProcessedResults{}
+	if resultsSize := unsafe.Sizeof(results); resultsSize > 1024*1024*2 {
+		panic(fmt.Sprintf("results bigger than hugepage: %d > 2MB", resultsSize))
+	}
 	IterInto(data, &results, lookup)
 	resultCh <- &results
 }

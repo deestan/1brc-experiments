@@ -32,8 +32,10 @@ func (w *WeatherStationData) Update(measurement Decimal1_16) {
 	w.Max = max(w.Max, measurement)
 }
 
+const MAP_SIZE = 32768
+
 type ProcessedResults struct {
-	items [65536]WeatherStationData
+	items [MAP_SIZE]WeatherStationData
 }
 
 func (p *ProcessedResults) MergeFrom(q *ProcessedResults) {
@@ -53,7 +55,7 @@ func (p *ProcessedResults) MergeFrom(q *ProcessedResults) {
 }
 
 func (p *ProcessedResults) get(id IdentityHash) (*WeatherStationData, *WeatherStationData) {
-	index := uint16(id)
+	index := uint16(id) >> 1
 	if p.items[index].Count == 0 {
 		return nil, &p.items[index]
 	}
