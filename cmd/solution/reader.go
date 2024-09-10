@@ -95,47 +95,37 @@ func IterInto(data []byte, results *ProcessedResults, numberLookup *[65536]Decim
 		// Read name
 		recordStart := pos
 		pos++
+	skipToDelim:
 		for {
 			skip := detectDelimiter(&data[pos])
-			if skip == 0 {
-				pos += 8
-				continue
+			switch skip & 0xffffffff {
+			case 0x80000000:
+				pos += 3
+				break skipToDelim
+			case 0x00800000:
+				pos += 2
+				break skipToDelim
+			case 0x00008000:
+				pos += 1
+				break skipToDelim
+			case 0x00000080:
+				break skipToDelim
 			}
-			if skip&0x80 != 0 {
-				break
+			switch skip >> 32 {
+			case 0x80000000:
+				pos += 7
+				break skipToDelim
+			case 0x00800000:
+				pos += 6
+				break skipToDelim
+			case 0x00008000:
+				pos += 5
+				break skipToDelim
+			case 0x00000080:
+				pos += 4
+				break skipToDelim
 			}
-			skip >>= 8
-			pos++
-			if skip&0x80 != 0 {
-				break
-			}
-			skip >>= 8
-			pos++
-			if skip&0x80 != 0 {
-				break
-			}
-			skip >>= 8
-			pos++
-			if skip&0x80 != 0 {
-				break
-			}
-			skip >>= 8
-			pos++
-			if skip&0x80 != 0 {
-				break
-			}
-			skip >>= 8
-			pos++
-			if skip&0x80 != 0 {
-				break
-			}
-			skip >>= 8
-			pos++
-			if skip&0x80 != 0 {
-				break
-			}
-			skip >>= 8
-			pos++
+			pos += 8
 		}
 		name := data[recordStart:pos]
 		id := IdentityHash(xxhash.Sum64(name))
