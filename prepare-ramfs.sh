@@ -1,4 +1,5 @@
 # Put on ram drive! Run as sudo
 set -e
 mkdir -p ramfs
-mount -t ramfs -o SIZE=14GB ramfs ./ramfs && cp ./measurements.txt ./ramfs
+mount -t tmpfs -omode=1777,huge=always,noswap tmpfs ./ramfs
+cp ./measurements.txt ./ramfs

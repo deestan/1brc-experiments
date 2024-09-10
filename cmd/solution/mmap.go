@@ -38,6 +38,9 @@ func NewMmapFile(filename string) (*MmapFile, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := syscall.Madvise(data, syscall.MADV_SEQUENTIAL|syscall.MADV_HUGEPAGE); err != nil {
+		return nil, err
+	}
 	m := &MmapFile{Data: data}
 	runtime.SetFinalizer(m, (*MmapFile).Close)
 	return m, nil
