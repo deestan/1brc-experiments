@@ -1,2 +1,2 @@
 # Run as sudo
-GOGC=off nice -n 10 ionice -c 1 -n 1 /bin/time -p ./solution ./ramfs/measurements.txt > /dev/null
+nice -n 10 ionice -c 1 -n 1 /bin/time -vp ./solution ./ramfs/measurements.txt > /dev/null
