@@ -89,6 +89,7 @@ func partitionData(data []byte, numPartitions int) [][]byte {
 func process(data []byte, resultCh chan *ProcessedResults, lookup *[65536]Decimal1_16) {
 	results, err := Alloc[ProcessedResults](ProcessedResultsSize)
 	if err != nil {
+		fmt.Fprint(os.Stderr, "Could not allocate huge pages. Try:\nsudo sysctl -w vm.nr_hugepages=512\n")
 		panic(err)
 	}
 	IterInto(data, results, lookup)
