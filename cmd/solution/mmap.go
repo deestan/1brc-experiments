@@ -30,11 +30,11 @@ func (m *MmapAlloc[T]) Close() error {
 	return syscall.Munmap(datax)
 }
 
-func Alloc[T any](size int64) (*T, error) {
+func Alloc[T any](size int) (*T, error) {
 	data, err := syscall.Mmap(
 		-1,
 		0,
-		int(size),
+		size,
 		syscall.PROT_WRITE|syscall.PROT_READ,
 		syscall.MAP_PRIVATE|syscall.MAP_HUGETLB|syscall.MAP_ANONYMOUS,
 	)
