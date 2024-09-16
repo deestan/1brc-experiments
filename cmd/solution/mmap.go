@@ -68,7 +68,7 @@ func NewMmapFile(filename string, pad int) (*MmapFile, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := syscall.Madvise(data, syscall.MADV_SEQUENTIAL|syscall.MADV_HUGEPAGE); err != nil {
+	if err := syscall.Madvise(data, syscall.MADV_SEQUENTIAL); err != nil {
 		return nil, err
 	}
 	m := &MmapFile{Data: data[:len(data)-pad]}
