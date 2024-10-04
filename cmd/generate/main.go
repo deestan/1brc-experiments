@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/bytedance/gopkg/lang/fastrand"
 )
@@ -18,23 +19,19 @@ type weatherStationSource struct {
 const MEASUREMENT_DIVERGENCE = 109
 
 func main() {
-	sumsies := map[int]string{}
 	for _, station := range SOURCE_STATIONS {
 		s := 0
 		n := station.name[:len(station.name)-1]
 		for _, b := range []byte(n) {
 			s += int(b)
 		}
-		if c, ok := sumsies[s]; ok {
-			if len(c) == len(n) {
-				fmt.Println("collision for " + n + " and " + c)
-			}
-		}
-		sumsies[s] = n
+	}
+	if len(os.Args) < 2 {
+		panic("missing parameter: number of records to create (int)")
 	}
 	count, err := strconv.ParseInt(os.Args[1], 10, 64)
 	if err != nil {
-		panic("missing or invalid parameter: number of records to create (int)")
+		panic("invalid parameter: number of records to create (int)")
 	}
 	maxRecordLength := 0
 	maxLengthAfterName := len("-99.9\n")
@@ -49,7 +46,14 @@ func main() {
 	defer f.Close()
 	f.Truncate(maxFileSize)
 	written := int64(0)
-	for range count {
+	nextTick := time.Now().Add(time.Second)
+	fmt.Println("Generating measurements.txt...")
+	for i := range count {
+		now := time.Now()
+		if now.After(nextTick) {
+			fmt.Printf("\r%0.2f%%", (float64(i) / (float64(count) / 100)))
+			nextTick = now.Add(time.Second)
+		}
 		station := SOURCE_STATIONS[fastrand.Int()%len(SOURCE_STATIONS)]
 		measurement := station.avg + fastrand.Int()%(MEASUREMENT_DIVERGENCE*2+1) - MEASUREMENT_DIVERGENCE
 		measurement = max(-999, min(999, measurement))
@@ -59,6 +63,7 @@ func main() {
 			written += int64(n)
 		}
 	}
+	fmt.Println("100.00%")
 	f.Truncate(written)
 }
 
