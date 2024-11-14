@@ -232,7 +232,7 @@ var SOURCE_STATIONS = [...]weatherStationSource{
 	{[]byte("Erzurum;"), 51},
 	{[]byte("Fairbanks;"), -23},
 	{[]byte("Fianarantsoa;"), 179},
-	{[]byte("Flores),  Petén;"), 264},
+	{[]byte("Flores, Petén;"), 264},
 	{[]byte("Frankfurt;"), 106},
 	{[]byte("Fresno;"), 179},
 	{[]byte("Fukuoka;"), 170},
